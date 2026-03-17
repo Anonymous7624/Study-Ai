@@ -48,24 +48,30 @@ export async function runCheck(
   await connectDB();
   const userObjectId = new mongoose.Types.ObjectId(userId);
 
-  const conn = await GoogleConnection.findOne({ userId: userObjectId }).lean();
-  if (!conn) {
-    return { success: false, error: "Google not connected" };
+  const [conn, userFilesCount] = await Promise.all([
+    GoogleConnection.findOne({ userId: userObjectId }).lean(),
+    UserFile.countDocuments({ userId: userObjectId }),
+  ]);
+  if (!conn && userFilesCount === 0) {
+    return { success: false, error: "Connect Google or upload files to sync" };
   }
 
-  let accessToken = conn.accessToken;
-  if (new Date(conn.expiresAt) <= new Date()) {
-    const refreshed = await refreshAccessToken(conn.refreshToken);
-    accessToken = refreshed.access_token;
-    await GoogleConnection.updateOne(
-      { userId: userObjectId },
-      {
-        $set: {
-          accessToken: refreshed.access_token,
-          expiresAt: new Date(Date.now() + refreshed.expires_in * 1000),
-        },
-      }
-    );
+  let accessToken: string | null = null;
+  if (conn) {
+    accessToken = conn.accessToken;
+    if (new Date(conn.expiresAt) <= new Date()) {
+      const refreshed = await refreshAccessToken(conn.refreshToken);
+      accessToken = refreshed.access_token;
+      await GoogleConnection.updateOne(
+        { userId: userObjectId },
+        {
+          $set: {
+            accessToken: refreshed.access_token,
+            expiresAt: new Date(Date.now() + refreshed.expires_in * 1000),
+          },
+        }
+      );
+    }
   }
 
   const job = options.jobId
@@ -77,24 +83,24 @@ export async function runCheck(
       });
   if (!job) return { success: false, error: "Check job not found" };
 
-  const updateProgress = (msg: string) => {
+  const updateProgress = (msg: string, stage?: number) => {
     options.onProgress?.(msg);
-    void CheckJob.updateOne(
-      { _id: job._id },
-      { $set: { progress: msg, updatedAt: new Date() } }
-    );
+    const update: Record<string, unknown> = { progress: msg, updatedAt: new Date() };
+    if (stage !== undefined) update.progressStage = stage;
+    void CheckJob.updateOne({ _id: job._id }, { $set: update });
   };
 
   try {
     await CheckJob.updateOne(
       { _id: job._id },
-      { $set: { status: "running", progress: "Starting...", updatedAt: new Date() } }
+      { $set: { status: "running", progress: "Starting...", progressStage: 0, updatedAt: new Date() } }
     );
 
     const courseMap = new Map<string, mongoose.Types.ObjectId>();
     let coursesProcessed = 0;
     let assignmentsProcessed = 0;
     let filesProcessed = 0;
+    let documentsRead = 0;
 
     // Ensure manual uploads course exists
     const manualCourse = await Course.findOneAndUpdate(
@@ -109,12 +115,13 @@ export async function runCheck(
     );
     courseMap.set(MANUAL_COURSE_ID, manualCourse._id);
 
-    // 1. Pull Google Classroom data
-    updateProgress("Fetching Google Classroom courses...");
-    const classroomCourses = await listCourses(accessToken);
-    const topicMap = new Map<string, string>();
+    // 1. Pull Google Classroom data (if connected)
+    if (accessToken) {
+      updateProgress("Reading assignments", 0);
+      const classroomCourses = await listCourses(accessToken);
+      const topicMap = new Map<string, string>();
 
-    for (const gc of classroomCourses) {
+      for (const gc of classroomCourses) {
       const course = await Course.findOneAndUpdate(
         { userId: userObjectId, classroomCourseId: gc.id },
         {
@@ -248,6 +255,7 @@ export async function runCheck(
       coursesProcessed++;
 
       // Sync announcements and extract deadlines
+      updateProgress("Reading announcements", 1);
       const announcements = await listAnnouncements(accessToken, gc.id);
       for (const ann of announcements) {
         const annDeadlines = ann.text ? extractDeadlines(ann.text) : [];
@@ -270,9 +278,10 @@ export async function runCheck(
         );
       }
     }
+    }
 
     // 2. Process manual uploads
-    updateProgress("Processing uploaded files...");
+    updateProgress("Reading docs/slides/files", 2);
     const userFiles = await UserFile.find({ userId: userObjectId }).lean();
     for (const uf of userFiles) {
       let text = uf.extractedText;
@@ -320,7 +329,7 @@ export async function runCheck(
     }
 
     // 3. Update course context (memory)
-    updateProgress("Updating course context...");
+    updateProgress("Building class context", 3);
     for (const [courseId, courseObjId] of courseMap) {
       if (courseId === MANUAL_COURSE_ID) continue;
       const assignments = await Assignment.find({ userId: userObjectId, courseId: courseObjId }).lean();
@@ -341,7 +350,7 @@ export async function runCheck(
     }
 
     // 4. Compute priority scores and re-rank
-    updateProgress("Computing priorities...");
+    updateProgress("Checking due dates", 4);
     const allAssignments = await Assignment.find({
       userId: userObjectId,
       localCompleted: { $ne: true },
@@ -359,6 +368,7 @@ export async function runCheck(
 
     const ranked = rankAssignments(scored, "ai-recommended");
 
+    updateProgress("Generating study notes", 5);
     for (let i = 0; i < ranked.length; i++) {
       const a = ranked[i] as (typeof ranked[0]) & { _id: mongoose.Types.ObjectId };
       await Assignment.updateOne(
@@ -375,7 +385,26 @@ export async function runCheck(
       );
     }
 
-    // 5. Mark job complete, update user lastCheckedAt
+    updateProgress("Updating calendar", 6);
+    const now = new Date();
+    const pastDueCount = ranked.filter((a) => {
+      const d = a.officialDueDate ?? a.inferredDueDate;
+      return d && new Date(d) < now;
+    }).length;
+    const futureDueCount = ranked.filter((a) => {
+      const d = a.officialDueDate ?? a.inferredDueDate;
+      return d && new Date(d) >= now;
+    }).length;
+    const testsQuizzesCount = ranked.filter(
+      (a) => a.itemType === "test" || a.itemType === "quiz"
+    ).length;
+    const hiddenDeadlinesCount = ranked.filter(
+      (a) => a.itemType === "hidden_deadline"
+    ).length;
+    const dateConflictsCount = ranked.filter((a) => a.dueDateConflict).length;
+    documentsRead = filesProcessed; // materials + uploaded files with text
+
+    updateProgress("Finalizing", 7);
     await CheckJob.updateOne(
       { _id: job._id },
       {
@@ -383,9 +412,18 @@ export async function runCheck(
           status: "completed",
           completedAt: new Date(),
           progress: "Done",
+          progressStage: 7,
           coursesProcessed,
           assignmentsProcessed,
           filesProcessed,
+          documentsRead,
+          assignmentsFound: ranked.length,
+          pastDueCount,
+          futureDueCount,
+          testsQuizzesCount,
+          hiddenDeadlinesCount,
+          dateConflictsCount,
+          aiMemoryUpdated: courseMap.size > 1, // updated context for non-manual courses
           updatedAt: new Date(),
         },
       }
@@ -394,10 +432,12 @@ export async function runCheck(
       { _id: userObjectId },
       { $set: { lastCheckedAt: new Date() } }
     );
-    await GoogleConnection.updateOne(
-      { userId: userObjectId },
-      { $set: { lastSyncAt: new Date() } }
-    );
+    if (conn) {
+      await GoogleConnection.updateOne(
+        { userId: userObjectId },
+        { $set: { lastSyncAt: new Date() } }
+      );
+    }
 
     return { success: true, jobId: job._id.toString() };
   } catch (err) {

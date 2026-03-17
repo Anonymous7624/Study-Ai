@@ -35,8 +35,6 @@ export default async function SettingsPage() {
           preferences={{
             defaultSortMode: prefs?.defaultSortMode ?? "ai-recommended",
             theme: prefs?.theme ?? "system",
-            modelName: prefs?.modelName ?? "deepseek-r1:7b",
-            localModelBaseUrl: prefs?.localModelBaseUrl ?? "http://localhost:11434",
           }}
         />
       </div>

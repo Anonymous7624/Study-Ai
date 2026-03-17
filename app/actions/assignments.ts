@@ -4,24 +4,51 @@ import connectDB from "@/lib/mongodb";
 import Assignment from "@/models/Assignment";
 import Course from "@/models/Course";
 import User from "@/models/User";
+import UserFile from "@/models/UserFile";
 import GoogleConnection from "@/models/GoogleConnection";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
 export async function getDashboardMeta() {
   const session = await getSession();
-  if (!session) return { googleConnected: false, lastCheckedAt: null as Date | null };
+  if (!session)
+    return {
+      googleConnected: false,
+      hasUploadedFiles: false,
+      lastCheckedAt: null as Date | null,
+      lastSyncAt: null as Date | null,
+    };
 
   await connectDB();
-  const [conn, user] = await Promise.all([
+  const [conn, user, fileCount] = await Promise.all([
     GoogleConnection.findOne({ userId: session.id }).lean(),
     User.findById(session.id).lean(),
+    UserFile.countDocuments({ userId: session.id }),
   ]);
   return {
     googleConnected: !!conn,
+    hasUploadedFiles: (fileCount ?? 0) > 0,
     lastCheckedAt: user?.lastCheckedAt ?? null,
     lastSyncAt: conn?.lastSyncAt ?? null,
   };
+}
+
+export async function getUploadedFiles() {
+  const session = await getSession();
+  if (!session) return [];
+
+  await connectDB();
+  const files = await UserFile.find({ userId: session.id })
+    .sort({ uploadedAt: -1 })
+    .lean();
+  return files.map((f) => ({
+    id: f._id.toString(),
+    originalName: f.originalName,
+    mimeType: f.mimeType,
+    size: f.size,
+    uploadedAt: f.uploadedAt,
+    sourceType: f.sourceType,
+  }));
 }
 
 export async function getCalendarEvents(year?: number, month?: number) {

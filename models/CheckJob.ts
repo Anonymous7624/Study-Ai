@@ -9,9 +9,19 @@ export interface ICheckJob extends Document {
   completedAt?: Date;
   error?: string;
   progress?: string;
+  progressStage?: number; // 0-7 for progress bar
   coursesProcessed?: number;
   assignmentsProcessed?: number;
   filesProcessed?: number;
+  // Sync completion summary
+  documentsRead?: number;
+  assignmentsFound?: number;
+  pastDueCount?: number;
+  futureDueCount?: number;
+  testsQuizzesCount?: number;
+  hiddenDeadlinesCount?: number;
+  dateConflictsCount?: number;
+  aiMemoryUpdated?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -31,6 +41,15 @@ const CheckJobSchema = new Schema<ICheckJob>(
     coursesProcessed: Number,
     assignmentsProcessed: Number,
     filesProcessed: Number,
+    progressStage: Number,
+    documentsRead: Number,
+    assignmentsFound: Number,
+    pastDueCount: Number,
+    futureDueCount: Number,
+    testsQuizzesCount: Number,
+    hiddenDeadlinesCount: Number,
+    dateConflictsCount: Number,
+    aiMemoryUpdated: Boolean,
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
   },

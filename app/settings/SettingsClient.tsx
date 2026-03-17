@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { updateSortPreference, updateTheme, updateModelConfig } from "../actions/settings";
+import { updateSortPreference, updateTheme } from "../actions/settings";
 import { useToast } from "@/components/ui/toast";
 import {
   ArrowLeft,
@@ -28,7 +28,7 @@ import {
   FileText,
   Link2,
   Unlink,
-  RefreshCw,
+  CheckCircle2,
 } from "lucide-react";
 
 const SORT_OPTIONS = [
@@ -47,8 +47,6 @@ interface SettingsClientProps {
   preferences: {
     defaultSortMode: string;
     theme: string;
-    modelName: string;
-    localModelBaseUrl: string;
   };
 }
 
@@ -64,8 +62,14 @@ type FileItem = {
 export function SettingsClient({ user, preferences }: SettingsClientProps) {
   const [theme, setTheme] = useState(preferences.theme);
   const [sortMode, setSortMode] = useState(preferences.defaultSortMode);
-  const [modelName, setModelName] = useState(preferences.modelName);
-  const [baseUrl, setBaseUrl] = useState(preferences.localModelBaseUrl);
+  const [email, setEmail] = useState(user.email);
+  const [username, setUsername] = useState(user.username);
+  const [displayName, setDisplayName] = useState(user.displayName || user.username);
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [passwordCurrent, setPasswordCurrent] = useState("");
+  const [passwordNew, setPasswordNew] = useState("");
+  const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [googleEmail, setGoogleEmail] = useState<string | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -73,9 +77,15 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
   const [filesLoading, setFilesLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [activeTab, setActiveTab] = useState("profile");
   const addToast = useToast();
   const searchParams = useSearchParams();
   const router = useRouter();
+
+  useEffect(() => {
+    const hash = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
+    if (hash === "connections" || hash === "uploads") setActiveTab(hash);
+  }, []);
 
   useEffect(() => {
     const connected = searchParams.get("google_connected");
@@ -140,9 +150,74 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
     if (res.success) addToast("Sort preference saved");
   };
 
-  const handleSaveModel = async () => {
-    const res = await updateModelConfig({ modelName, localModelBaseUrl: baseUrl });
-    if (res.success) addToast("Model settings saved");
+  const handleSaveAccount = async () => {
+    setAccountSaving(true);
+    try {
+      const res = await fetch("/api/auth/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim() !== user.email ? email.trim() : undefined,
+          username: username.trim() !== user.username ? username.trim() : undefined,
+          displayName: displayName.trim() !== (user.displayName || user.username) ? displayName.trim() : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast("Account updated");
+        if (data.user) {
+          setEmail(data.user.email);
+          setUsername(data.user.username);
+          setDisplayName(data.user.displayName ?? data.user.username);
+        }
+      } else {
+        addToast(data.error ?? "Failed to update", "destructive");
+      }
+    } catch {
+      addToast("Failed to update account", "destructive");
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordCurrent || !passwordNew || !passwordConfirm) {
+      addToast("Please fill all password fields", "destructive");
+      return;
+    }
+    if (passwordNew.length < 8) {
+      addToast("New password must be at least 8 characters", "destructive");
+      return;
+    }
+    if (passwordNew !== passwordConfirm) {
+      addToast("Passwords do not match", "destructive");
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: passwordCurrent,
+          newPassword: passwordNew,
+          confirmPassword: passwordConfirm,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast("Password updated");
+        setPasswordCurrent("");
+        setPasswordNew("");
+        setPasswordConfirm("");
+      } else {
+        addToast(data.error ?? "Failed to update password", "destructive");
+      }
+    } catch {
+      addToast("Failed to update password", "destructive");
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const handleConnectGoogle = () => {
@@ -162,23 +237,6 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
       }
     } catch {
       addToast("Failed to disconnect", "destructive");
-    } finally {
-      setGoogleLoading(false);
-    }
-  };
-
-  const handleSyncGoogle = async () => {
-    setGoogleLoading(true);
-    try {
-      const res = await fetch("/api/google/sync", { method: "POST" });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        addToast(`Synced ${data.coursesSynced ?? 0} courses`);
-      } else {
-        addToast(data.error ?? "Sync failed", "destructive");
-      }
-    } catch {
-      addToast("Sync failed", "destructive");
     } finally {
       setGoogleLoading(false);
     }
@@ -228,7 +286,7 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       <Link href="/dashboard">
         <Button variant="ghost" size="sm" className="gap-2">
           <ArrowLeft className="h-4 w-4" />
@@ -236,7 +294,7 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
         </Button>
       </Link>
 
-      <Tabs defaultValue="profile" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
@@ -247,24 +305,93 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
         <TabsContent value="profile" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Profile</CardTitle>
+              <CardTitle>Account Details</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Your ClassPilot account details
+                Update your email, username, and display name
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label>Email</Label>
-                <Input value={user.email} disabled className="mt-1" />
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="mt-1"
+                />
               </div>
               <div>
-                <Label>Username</Label>
-                <Input value={user.username} disabled className="mt-1" />
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="letters, numbers, _ and -"
+                  className="mt-1"
+                />
               </div>
               <div>
-                <Label>Display name</Label>
-                <Input value={user.displayName} disabled className="mt-1" />
+                <Label htmlFor="displayName">Display name</Label>
+                <Input
+                  id="displayName"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  className="mt-1"
+                />
               </div>
+              <Button onClick={handleSaveAccount} disabled={accountSaving} className="gap-2">
+                {accountSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {accountSaving ? "Saving…" : "Save changes"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Change Password</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Enter your current password and choose a new one
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="currentPassword">Current password</Label>
+                <Input
+                  id="currentPassword"
+                  type="password"
+                  value={passwordCurrent}
+                  onChange={(e) => setPasswordCurrent(e.target.value)}
+                  className="mt-1"
+                  autoComplete="current-password"
+                />
+              </div>
+              <div>
+                <Label htmlFor="newPassword">New password</Label>
+                <Input
+                  id="newPassword"
+                  type="password"
+                  value={passwordNew}
+                  onChange={(e) => setPasswordNew(e.target.value)}
+                  className="mt-1"
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <Label htmlFor="confirmPassword">Confirm new password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  value={passwordConfirm}
+                  onChange={(e) => setPasswordConfirm(e.target.value)}
+                  className="mt-1"
+                  autoComplete="new-password"
+                />
+              </div>
+              <Button onClick={handleChangePassword} disabled={passwordSaving} className="gap-2">
+                {passwordSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+                {passwordSaving ? "Updating…" : "Update password"}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -295,36 +422,6 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
 
           <Card>
             <CardHeader>
-              <CardTitle>Model configuration</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Local AI endpoint (Ollama-compatible)
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label>Model name</Label>
-                <Input
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  placeholder="deepseek-r1:7b"
-                  className="mt-1"
-                />
-              </div>
-              <div>
-                <Label>Base URL</Label>
-                <Input
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="http://localhost:11434"
-                  className="mt-1"
-                />
-              </div>
-              <Button onClick={handleSaveModel}>Save model settings</Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
               <CardTitle>Appearance</CardTitle>
               <p className="text-sm text-muted-foreground">Toggle dark mode</p>
             </CardHeader>
@@ -341,22 +438,29 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
           </Card>
         </TabsContent>
 
-        <TabsContent value="connections" className="space-y-4">
+        <TabsContent value="connections" className="space-y-4" id="connections">
           <Card>
             <CardHeader>
-              <CardTitle>Connections</CardTitle>
+              <CardTitle>Google Connection</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Connect Google Classroom and Drive to import assignments, posts, docs, slides, and files.
+                Connect Google Classroom, Drive, Docs, and Slides to sync assignments, materials, and deadlines.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-col gap-4 rounded-lg border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <p className="font-medium">Google</p>
+                    <p className="font-medium">Google (Classroom · Drive · Docs · Slides)</p>
                     <div className="flex items-center gap-2 mt-1">
                       <Badge variant={googleConnected ? "default" : "secondary"}>
-                        {googleConnected ? "Connected" : "Not Connected"}
+                        {googleConnected ? (
+                          <>
+                            <CheckCircle2 className="mr-1 h-3 w-3" />
+                            Connected
+                          </>
+                        ) : (
+                          "Not Connected"
+                        )}
                       </Badge>
                       {googleEmail && (
                         <span className="text-sm text-muted-foreground">{googleEmail}</span>
@@ -365,32 +469,21 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                   </div>
                   <div className="flex gap-2">
                     {googleConnected ? (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleSyncGoogle}
-                          disabled={googleLoading}
-                        >
-                          {googleLoading ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <>
-                              <RefreshCw className="h-4 w-4" />
-                              Sync
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleDisconnectGoogle}
-                          disabled={googleLoading}
-                        >
-                          <Unlink className="h-4 w-4" />
-                          Disconnect
-                        </Button>
-                      </>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleDisconnectGoogle}
+                        disabled={googleLoading}
+                      >
+                        {googleLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Unlink className="h-4 w-4" />
+                            Disconnect
+                          </>
+                        )}
+                      </Button>
                     ) : (
                       <Button
                         size="sm"
@@ -403,17 +496,22 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                     )}
                   </div>
                 </div>
+                {googleConnected && (
+                  <p className="text-xs text-muted-foreground">
+                    Run Sync from the dashboard to pull your latest assignments and materials.
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
-        <TabsContent value="uploads" className="space-y-4">
+        <TabsContent value="uploads" className="space-y-4" id="uploads">
           <Card>
             <CardHeader>
               <CardTitle>File Uploads</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Upload PDF, TXT, DOCX, or images. Files are stored locally and can be used for AI help.
+                Upload PDF, TXT, DOCX, or images. Files are used during sync for AI help.
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -450,7 +548,13 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                       Uploading…
                     </span>
                   ) : (
-                    <>Drag and drop or <label htmlFor="file-upload" className="cursor-pointer text-primary hover:underline">browse</label> to upload</>
+                    <>
+                      Drag and drop or{" "}
+                      <label htmlFor="file-upload" className="cursor-pointer text-primary hover:underline">
+                        browse
+                      </label>{" "}
+                      to upload
+                    </>
                   )}
                 </p>
                 <p className="text-xs text-muted-foreground">
@@ -466,9 +570,7 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                     Loading…
                   </div>
                 ) : files.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4">
-                    No files uploaded yet.
-                  </p>
+                  <p className="text-sm text-muted-foreground py-4">No files uploaded yet.</p>
                 ) : (
                   <div className="space-y-2">
                     {files.map((f) => (

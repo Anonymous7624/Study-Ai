@@ -45,6 +45,7 @@ export default async function WorkspacePage({
     courseId: assignment.courseId.toString(),
     title: assignment.title,
     description: assignment.description,
+    itemType: assignment.itemType,
     officialDueDate: assignment.officialDueDate?.toISOString() ?? null,
     inferredDueDate: assignment.inferredDueDate?.toISOString() ?? null,
     dueDateConflict: assignment.dueDateConflict,
@@ -59,6 +60,8 @@ export default async function WorkspacePage({
       : assignment.relatedClassContext ?? null,
     estimatedDifficulty: assignment.estimatedDifficulty,
     estimatedEffort: assignment.estimatedEffort,
+    materials: assignment.materials ?? [],
+    sourceLinks: assignment.sourceLinks ?? [],
   };
 
   return (
