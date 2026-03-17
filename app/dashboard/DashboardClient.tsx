@@ -100,6 +100,7 @@ type UploadedFile = {
   size: number;
   uploadedAt: string;
   sourceType: string;
+  processed?: boolean;
 };
 
 type SyncSummary = {
@@ -388,10 +389,10 @@ export default function DashboardClient({
 
   return (
     <div className="min-h-screen bg-background font-sans">
-      <header className="border-b bg-card/50">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
+      <header className="sticky top-0 z-20 border-b border-border/40 bg-background/95 backdrop-blur-sm">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 lg:px-8">
           <div>
-            <h1 className="text-xl font-semibold text-foreground">ClassPilot</h1>
+            <h1 className="text-lg font-semibold tracking-tight text-foreground">ClassPilot</h1>
             <p className="text-sm text-muted-foreground">
               Good{" "}
               {new Date().getHours() < 12
@@ -402,68 +403,69 @@ export default function DashboardClient({
               , {displayName}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Link href="/settings">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" size="sm" className="gap-2">
                 <Settings className="h-4 w-4" />
+                <span className="hidden sm:inline">Settings</span>
               </Button>
             </Link>
-            <Button variant="ghost" size="sm" onClick={handleSignOut}>
+            <Button variant="ghost" size="sm" onClick={handleSignOut} className="gap-2">
               <LogOut className="h-4 w-4" />
-              Sign out
+              <span className="hidden sm:inline">Sign out</span>
             </Button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <main className="mx-auto max-w-5xl px-4 py-8 lg:px-8">
         {error && (
-          <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive">
+          <div className="mb-6 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </div>
         )}
 
         {/* Onboarding: No Google + No files */}
         {showOnboarding && (
-          <Card className="mb-8 border-2 border-dashed border-muted-foreground/30">
-            <CardContent className="flex flex-col items-center gap-6 py-12">
-              <div className="text-center space-y-2">
-                <h2 className="text-xl font-semibold">Get Started with ClassPilot</h2>
-                <p className="text-muted-foreground max-w-md">
-                  Connect your Google account or upload files to sync your assignments, deadlines, and class materials.
+          <Card className="mb-8 overflow-hidden border-0 shadow-lg">
+            <CardContent className="flex flex-col items-center gap-8 py-14">
+              <div className="text-center space-y-3">
+                <h2 className="text-2xl font-semibold tracking-tight text-foreground">Get Started</h2>
+                <p className="max-w-md text-muted-foreground">
+                  Connect Google or upload files to sync assignments, deadlines, and materials.
                 </p>
               </div>
-              <div className="flex flex-wrap justify-center gap-4">
+              <div className="flex flex-wrap justify-center gap-3">
                 <Link href="/settings#connections">
-                  <Button size="lg" className="gap-2">
+                  <Button size="lg" className="h-12 gap-2 px-6 shadow-sm">
                     <Link2 className="h-5 w-5" />
                     Connect Google
                   </Button>
                 </Link>
                 <Link href="/settings#uploads">
-                  <Button variant="outline" size="lg" className="gap-2">
+                  <Button variant="outline" size="lg" className="h-12 gap-2 px-6">
                     <Upload className="h-5 w-5" />
                     Upload Files
                   </Button>
                 </Link>
               </div>
               <p className="text-xs text-muted-foreground">
-                Connect Classroom, Drive, Docs & Slides for full sync
+                Syncs Classroom, Drive, Docs, and Slides
               </p>
             </CardContent>
           </Card>
         )}
 
-        {/* Run Sync: When Google OR uploaded files */}
+        {/* Sync: Primary action when connected */}
         {canRunSync && !showOnboarding && (
-          <Card className="mb-6">
-            <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-col gap-1">
+          <Card className="mb-8 overflow-hidden border-0 shadow-md">
+            <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-1.5">
                 {googleConnected && (
                   <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                    <span className="font-medium text-sm">
-                      Google connected (Classroom · Drive · Docs · Slides)
+                    <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                    <span className="text-sm font-medium text-foreground">
+                      Google connected · Classroom, Drive, Docs, Slides
                     </span>
                   </div>
                 )}
@@ -473,18 +475,18 @@ export default function DashboardClient({
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 {cooldownRemaining > 0 ? (
-                  <Button size="lg" variant="outline" disabled className="gap-2">
-                    <RefreshCw className="h-4 w-4" />
-                    Run Sync (cooldown: {cooldownRemaining}s)
+                  <Button size="lg" variant="outline" disabled className="min-w-[180px] gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Cooldown: {cooldownRemaining}s
                   </Button>
                 ) : (
                   <Button
                     size="lg"
                     onClick={handleRunSync}
                     disabled={syncInProgress}
-                    className="gap-2"
+                    className="min-w-[180px] gap-2 shadow-sm"
                   >
                     {syncInProgress ? (
                       <>
@@ -494,7 +496,7 @@ export default function DashboardClient({
                     ) : (
                       <>
                         <RefreshCw className="h-4 w-4" />
-                        Run Sync
+                        Sync
                       </>
                     )}
                   </Button>
@@ -818,32 +820,37 @@ export default function DashboardClient({
 
         {/* Uploaded Files */}
         {uploadedFiles.length > 0 && (
-          <Card className="mb-6">
+          <Card className="mb-6 overflow-hidden shadow-sm">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
+              <CardTitle className="flex items-center gap-2 text-base font-semibold">
+                <FileText className="h-5 w-5 text-muted-foreground" />
                 Uploaded Files
               </CardTitle>
-              <p className="text-sm text-muted-foreground">Files you&apos;ve uploaded for AI help</p>
+              <p className="text-sm text-muted-foreground">
+                Files used by the AI during sync—manage in Settings
+              </p>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
                 {uploadedFiles.map((f) => (
                   <div
                     key={f.id}
-                    className="flex items-center justify-between rounded-lg border p-3"
+                    className="flex items-center justify-between rounded-lg border bg-muted/20 p-3 transition-colors hover:bg-muted/30"
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{f.originalName}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{f.originalName}</p>
                         <p className="text-xs text-muted-foreground">
-                          {formatFileSize(f.size)} · {new Date(f.uploadedAt).toLocaleDateString()}
+                          {f.mimeType?.split("/")[1]?.toUpperCase() ?? "File"} · {formatFileSize(f.size)} · {new Date(f.uploadedAt).toLocaleDateString()}
+                          {f.processed && (
+                            <span className="ml-1.5 text-emerald-600">· Processed</span>
+                          )}
                         </p>
                       </div>
                     </div>
                     <Link href="/settings#uploads">
-                      <Button variant="ghost" size="sm">Manage</Button>
+                      <Button variant="ghost" size="sm" className="shrink-0">Manage</Button>
                     </Link>
                   </div>
                 ))}
@@ -876,12 +883,29 @@ export default function DashboardClient({
           </Card>
         )}
 
-        {/* Calendar */}
-        <Card className="mt-8">
+        {/* Recently Synced - when we have data and last sync time */}
+        {lastCheckedAt && (assignments.length > 0 || uploadedFiles.length > 0) && !showOnboarding && (
+          <Card className="mb-6 overflow-hidden border-0 bg-muted/30 shadow-sm">
+            <CardContent className="flex items-center justify-between py-4">
+              <div className="flex items-center gap-3">
+                <div className="rounded-full bg-emerald-100 p-2 dark:bg-emerald-900/30">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Recently Synced</p>
+                  <p className="text-xs text-muted-foreground">{formatDate(lastCheckedAt)}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Calendar Preview */}
+        <Card className="mt-8 overflow-hidden shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <CalendarIcon className="h-5 w-5" />
-              Calendar
+              Calendar Preview
             </CardTitle>
             <div className="flex items-center gap-1">
               <Button

@@ -286,32 +286,32 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
   };
 
   return (
-    <div className="space-y-6 font-sans">
+    <div className="space-y-8 font-sans">
       <Link href="/dashboard">
-        <Button variant="ghost" size="sm" className="gap-2">
+        <Button variant="ghost" size="sm" className="gap-2 -ml-1">
           <ArrowLeft className="h-4 w-4" />
           Back to Dashboard
         </Button>
       </Link>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-4 h-11">
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
           <TabsTrigger value="connections">Connections</TabsTrigger>
           <TabsTrigger value="uploads">File Uploads</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="profile" className="space-y-4">
-          <Card>
+        <TabsContent value="profile" className="space-y-6 mt-6">
+          <Card className="overflow-hidden shadow-sm">
             <CardHeader>
-              <CardTitle>Account Details</CardTitle>
+              <CardTitle className="text-base font-semibold">Account Details</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Update your email, username, and display name
               </p>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
+            <CardContent className="space-y-4 pt-6">
+              <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
@@ -319,9 +319,10 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="mt-1"
+                  placeholder="you@example.com"
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="username">Username</Label>
                 <Input
                   id="username"
@@ -331,31 +332,32 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                   className="mt-1"
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="displayName">Display name</Label>
                 <Input
                   id="displayName"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="How you appear in the app"
                   className="mt-1"
                 />
               </div>
-              <Button onClick={handleSaveAccount} disabled={accountSaving} className="gap-2">
+              <Button onClick={handleSaveAccount} disabled={accountSaving} className="gap-2 mt-2">
                 {accountSaving && <Loader2 className="h-4 w-4 animate-spin" />}
                 {accountSaving ? "Saving…" : "Save changes"}
               </Button>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="overflow-hidden shadow-sm">
             <CardHeader>
-              <CardTitle>Change Password</CardTitle>
+              <CardTitle className="text-base font-semibold">Change Password</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Enter your current password and choose a new one
               </p>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
+            <CardContent className="space-y-4 pt-6">
+              <div className="space-y-2">
                 <Label htmlFor="currentPassword">Current password</Label>
                 <Input
                   id="currentPassword"
@@ -366,7 +368,7 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                   autoComplete="current-password"
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="newPassword">New password</Label>
                 <Input
                   id="newPassword"
@@ -377,7 +379,7 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                   autoComplete="new-password"
                 />
               </div>
-              <div>
+              <div className="space-y-2">
                 <Label htmlFor="confirmPassword">Confirm new password</Label>
                 <Input
                   id="confirmPassword"
@@ -396,10 +398,10 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
           </Card>
         </TabsContent>
 
-        <TabsContent value="preferences" className="space-y-4">
-          <Card>
+        <TabsContent value="preferences" className="space-y-6 mt-6">
+          <Card className="overflow-hidden shadow-sm">
             <CardHeader>
-              <CardTitle>Dashboard preferences</CardTitle>
+              <CardTitle className="text-base font-semibold">Dashboard preferences</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Default sort order for assignments
               </p>
@@ -420,9 +422,9 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="overflow-hidden shadow-sm">
             <CardHeader>
-              <CardTitle>Appearance</CardTitle>
+              <CardTitle className="text-base font-semibold">Appearance</CardTitle>
               <p className="text-sm text-muted-foreground">Toggle dark mode</p>
             </CardHeader>
             <CardContent>
@@ -438,16 +440,16 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
           </Card>
         </TabsContent>
 
-        <TabsContent value="connections" className="space-y-4" id="connections">
-          <Card>
+        <TabsContent value="connections" className="space-y-6 mt-6" id="connections">
+          <Card className="overflow-hidden shadow-sm">
             <CardHeader>
-              <CardTitle>Google Connection</CardTitle>
+              <CardTitle className="text-base font-semibold">Google Connection</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Connect Google Classroom, Drive, Docs, and Slides to sync assignments, materials, and deadlines.
+                When connected, we sync Classroom, Drive, Docs, and Slides.
               </p>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex flex-col gap-4 rounded-lg border p-4">
+            <CardContent className="space-y-4 pt-6">
+              <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <p className="font-medium">Google (Classroom · Drive · Docs · Slides)</p>
@@ -498,7 +500,7 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
                 </div>
                 {googleConnected && (
                   <p className="text-xs text-muted-foreground">
-                    Run Sync from the dashboard to pull your latest assignments and materials.
+                    Run Sync on the dashboard to pull your latest assignments.
                   </p>
                 )}
               </div>
@@ -506,10 +508,10 @@ export function SettingsClient({ user, preferences }: SettingsClientProps) {
           </Card>
         </TabsContent>
 
-        <TabsContent value="uploads" className="space-y-4" id="uploads">
-          <Card>
+        <TabsContent value="uploads" className="space-y-6 mt-6" id="uploads">
+          <Card className="overflow-hidden shadow-sm">
             <CardHeader>
-              <CardTitle>File Uploads</CardTitle>
+              <CardTitle className="text-base font-semibold">File Uploads</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Upload PDF, TXT, DOCX, or images. Files are used during sync for AI help.
               </p>

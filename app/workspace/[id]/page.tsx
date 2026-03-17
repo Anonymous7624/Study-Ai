@@ -63,7 +63,6 @@ export default async function WorkspacePage({
     evidenceUsed: assignment.evidenceUsed,
     dueDateStatus: assignment.dueDateStatus,
     wrongDateConclusion: assignment.wrongDateConclusion,
-    itemType: assignment.itemType,
     relatedClassContext: Array.isArray(assignment.relatedClassContext)
       ? assignment.relatedClassContext.join(", ")
       : assignment.relatedClassContext ?? null,

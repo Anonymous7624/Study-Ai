@@ -35,7 +35,6 @@ export async function GET(request: NextRequest) {
     coursesProcessed: job.coursesProcessed,
     assignmentsProcessed: job.assignmentsProcessed,
     filesProcessed: job.filesProcessed,
-    progressStage: job.progressStage,
     documentsReadCount: job.documentsReadCount,
     assignmentsFoundCount: job.assignmentsFoundCount,
     pastDueCount: job.pastDueCount,

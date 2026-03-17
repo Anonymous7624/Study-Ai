@@ -55,7 +55,6 @@ interface AssignmentWorkspaceProps {
     evidenceUsed?: string[] | null;
     dueDateStatus?: string | null;
     wrongDateConclusion?: string | null;
-    itemType?: string | null;
     relatedClassContext?: string | string[] | null;
     estimatedDifficulty?: number | string | null;
     estimatedEffort?: number | string | null;
@@ -89,10 +88,16 @@ function NoteSection({
 }) {
   if (!children) return null;
   return (
-    <Card className={highlight ? "border-primary/30 bg-primary/5" : ""}>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base font-semibold">
-          {Icon && <Icon className="h-4 w-4" />}
+    <Card
+      className={
+        highlight
+          ? "border-primary/30 bg-primary/5 shadow-sm"
+          : "border-border/60 shadow-sm"
+      }
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold tracking-tight text-foreground">
+          {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
           {title}
         </CardTitle>
       </CardHeader>
@@ -205,7 +210,9 @@ export default function AssignmentWorkspace({
             {/* 1. Teacher Description */}
             <NoteSection title="Teacher Description" icon={FileText}>
               {assignment.description ? (
-                <div className="whitespace-pre-wrap text-sm text-muted-foreground">{assignment.description}</div>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                  {assignment.description}
+                </div>
               ) : (
                 <p className="text-sm text-muted-foreground">No description provided.</p>
               )}
@@ -214,7 +221,9 @@ export default function AssignmentWorkspace({
             {/* 2. AI Assignment Breakdown */}
             <NoteSection title="AI Assignment Breakdown" icon={Lightbulb}>
               {(assignment.aiDescription ?? assignment.teacherIntentSummary ?? assignment.aiSummary) && (
-                <p className="text-sm">{assignment.aiDescription ?? assignment.teacherIntentSummary ?? assignment.aiSummary}</p>
+                <p className="text-sm leading-relaxed text-foreground">
+                  {assignment.aiDescription ?? assignment.teacherIntentSummary ?? assignment.aiSummary}
+                </p>
               )}
             </NoteSection>
 

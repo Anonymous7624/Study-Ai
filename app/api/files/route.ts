@@ -23,6 +23,7 @@ export async function GET() {
         size: f.size,
         uploadedAt: f.uploadedAt,
         sourceType: f.sourceType,
+        processed: !!f.extractedText,
       })),
     });
   } catch (err) {

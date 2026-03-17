@@ -101,7 +101,7 @@ export default function WorkspaceChat({
         {
           role: "assistant",
           content:
-            "I had trouble connecting to the AI. Check that Ollama is running (http://localhost:11434) with the deepseek-r1:7b model, or update your settings.",
+            "I had trouble connecting to the AI. Check that Ollama is running at http://localhost:11434.",
         },
       ]);
     } finally {

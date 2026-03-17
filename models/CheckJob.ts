@@ -27,7 +27,6 @@ export interface ICheckJob extends Document {
   coursesProcessed?: number;
   assignmentsProcessed?: number;
   filesProcessed?: number;
-  progressStage?: number; // 0-7 for progress bar
   // Extended sync summary
   documentsReadCount?: number;
   assignmentsFoundCount?: number;
