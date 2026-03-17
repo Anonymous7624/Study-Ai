@@ -18,9 +18,14 @@ export default async function HomePage() {
                 <Button>Dashboard</Button>
               </Link>
             ) : (
-              <Link href="/sign-in">
-                <Button>Sign In</Button>
-              </Link>
+              <>
+                <Link href="/sign-in">
+                  <Button variant="ghost">Sign In</Button>
+                </Link>
+                <Link href="/create-account">
+                  <Button>Create Account</Button>
+                </Link>
+              </>
             )}
           </nav>
         </div>
@@ -34,15 +39,24 @@ export default async function HomePage() {
             <span className="text-primary">School Copilot</span>
           </h1>
           <p className="mb-10 text-lg text-muted-foreground">
-            ClassPilot connects to Google Classroom, understands your classes,
-            detects hidden deadlines, and gives you assignment-specific help—not
-            just due date alerts.
+            ClassPilot helps you organize assignments, connect Google Classroom and Drive,
+            read documents and PDFs, upload files manually, rank work intelligently,
+            and get assignment-specific AI help.
           </p>
-          <Link href={session ? "/dashboard" : "/sign-in"}>
-            <Button size="lg" className="text-base">
-              {session ? "Go to Dashboard" : "Get Started"}
-            </Button>
-          </Link>
+          <div className="flex flex-wrap justify-center gap-4">
+            <Link href={session ? "/dashboard" : "/sign-in"}>
+              <Button size="lg" variant={session ? "default" : "outline"} className="text-base">
+                {session ? "Go to Dashboard" : "Sign In"}
+              </Button>
+            </Link>
+            {!session && (
+              <Link href="/create-account">
+                <Button size="lg" className="text-base">
+                  Create Account
+                </Button>
+              </Link>
+            )}
+          </div>
         </section>
 
         <section className="mx-auto mt-24 max-w-4xl">
@@ -51,20 +65,28 @@ export default async function HomePage() {
           </h2>
           <div className="grid gap-6 sm:grid-cols-2">
             <FeatureCard
-              title="Syncs Classroom & Materials"
-              description="Pulls assignments, announcements, and materials from Google Classroom. Reads Google Docs, Slides, and PDF attachments to understand context."
+              title="Organize Assignments"
+              description="Keep all your assignments in one place. Sync from Google Classroom or upload files manually. ClassPilot ranks them by urgency and importance."
             />
             <FeatureCard
-              title="Detects Hidden Deadlines"
-              description="Finds due dates buried in descriptions, announcements, and attached files. Flags conflicts when Classroom says one date but the text says another."
+              title="Connect Google Classroom & Drive"
+              description="Import courses, assignments, announcements, and materials. Access Docs, Slides, and attached PDFs—all in one workspace."
+            />
+            <FeatureCard
+              title="Read Documents & PDFs"
+              description="ClassPilot reads PDFs, text files, docs, and slides to understand context. Extracted text powers smart summaries and AI help."
+            />
+            <FeatureCard
+              title="Upload Files Manually"
+              description="No Google account? No problem. Upload PDFs, TXT, DOCX, and images directly. Your files are stored securely."
             />
             <FeatureCard
               title="Intelligent Ranking"
-              description="Ranks assignments by urgency, importance, difficulty, effort, and teacher emphasis—not just by due date."
+              description="Ranks assignments by urgency, importance, difficulty, and effort—not just due date. Focus on what matters most."
             />
             <FeatureCard
-              title="Assignment-Specific Help"
-              description="Provides class-context tutoring. Helps you get started, understand teacher intent, and answer follow-up questions."
+              title="Assignment-Specific AI Help"
+              description="Get class-context tutoring. Start assignments, understand teacher intent, and get answers to follow-up questions."
             />
           </div>
         </section>

@@ -1,7 +1,7 @@
 /**
  * Seed courses, assignments, posts, and course context for local dev.
  * Run: npm run seed
- * Prerequisite: Run seed:user first to create Ldawg.
+ * Prerequisite: Create an account at /create-account or run seed:user.
  */
 import "dotenv/config";
 import mongoose from "mongoose";
@@ -16,19 +16,24 @@ async function seed() {
   const uri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/classpilot";
   await mongoose.connect(uri);
 
-  const user = await User.findOne({ username: "Ldawg" });
+  const user = await User.findOne({
+    $or: [
+      { email: (process.env.SEED_EMAIL || "dev@classpilot.local").toLowerCase() },
+      { username: process.env.SEED_USERNAME || "devuser" },
+    ],
+  });
+
   if (!user) {
-    console.error("User Ldawg not found. Run: npm run seed:user");
+    console.error("No user found. Create an account at /create-account or run: npm run seed:user");
     process.exit(1);
   }
 
-  const userId = user._id.toString();
+  const userId = user._id;
 
-  // Ensure user has preferences
   await UserPreference.findOneAndUpdate(
-    { userId: user._id },
+    { userId },
     {
-      userId: user._id,
+      userId,
       defaultSortMode: "ai-recommended",
       theme: "light",
       modelName: "deepseek-r1:7b",
@@ -37,7 +42,6 @@ async function seed() {
     { upsert: true }
   );
 
-  // Create or update courses
   const course1 = await Course.findOneAndUpdate(
     { userId, classroomCourseId: "mock-course-1" },
     {
@@ -105,10 +109,10 @@ async function seed() {
       firstStep: "Start with problem 1 – it's a warm-up u-sub.",
       estimatedDifficulty: 6,
       estimatedEffort: 90,
-      urgencyScore: 85,
-      importanceScore: 90,
-      easyScore: 40,
-      finalPriorityScore: 88,
+      urgencyScore: 0.85,
+      importanceScore: 0.9,
+      easyScore: 0.4,
+      finalPriorityScore: 0.88,
       priorityReason: "High importance for current unit; due Friday.",
     },
     {
@@ -138,10 +142,10 @@ async function seed() {
       firstStep: "Outline your thesis and three main arguments.",
       estimatedDifficulty: 7,
       estimatedEffort: 180,
-      urgencyScore: 75,
-      importanceScore: 95,
-      easyScore: 20,
-      finalPriorityScore: 82,
+      urgencyScore: 0.75,
+      importanceScore: 0.95,
+      easyScore: 0.2,
+      finalPriorityScore: 0.82,
       priorityReason: "Major assignment with two deadlines. Start draft early.",
     },
     {
@@ -167,10 +171,10 @@ async function seed() {
       firstStep: "Do problem 1 – simple power rule.",
       estimatedDifficulty: 2,
       estimatedEffort: 15,
-      urgencyScore: 95,
-      importanceScore: 50,
-      easyScore: 90,
-      finalPriorityScore: 78,
+      urgencyScore: 0.95,
+      importanceScore: 0.5,
+      easyScore: 0.9,
+      finalPriorityScore: 0.78,
       priorityReason: "Quick win – easy and due soon.",
     },
     {
@@ -201,23 +205,22 @@ async function seed() {
       firstStep: "Read the first half of Ch. 12 tonight.",
       estimatedDifficulty: 4,
       estimatedEffort: 60,
-      urgencyScore: 60,
-      importanceScore: 70,
-      easyScore: 65,
-      finalPriorityScore: 65,
+      urgencyScore: 0.6,
+      importanceScore: 0.7,
+      easyScore: 0.65,
+      finalPriorityScore: 0.65,
       priorityReason: "Possible due date conflict – Tuesday per announcement.",
     },
   ];
 
   for (const a of assignments) {
     await Assignment.findOneAndUpdate(
-      { userId, classroomAssignmentId: a.classroomAssignmentId },
+      { userId: a.userId, classroomAssignmentId: a.classroomAssignmentId },
       a,
       { upsert: true }
     );
   }
 
-  // Seed posts
   const posts = [
     {
       userId,
@@ -240,20 +243,19 @@ async function seed() {
       title: "Discussion Date Change",
       alternateLink: "https://classroom.google.com/c/mock2/p/mockp2",
       extractedTopics: ["Ch. 12", "Discussion"],
-      extractedDates: [{ date: new Date(friday.getTime() + 4 * 86400000), confidence: "high" }],
+      extractedDates: [{ date: new Date(friday.getTime() + 4 * 86400000), source: "announcement", confidence: "high" }],
       aiSummary: "Discussion moved to Tuesday.",
     },
   ];
 
   for (const p of posts) {
     await Post.findOneAndUpdate(
-      { userId, classroomPostId: p.classroomPostId },
-      { ...p, userId, courseId: p.courseId } as Parameters<typeof Post.create>[0],
+      { userId: p.userId, classroomPostId: p.classroomPostId },
+      { ...p, userId: p.userId, courseId: p.courseId },
       { upsert: true }
     );
   }
 
-  // Seed course context
   for (const course of [course1, course2]) {
     await CourseContext.findOneAndUpdate(
       { userId, courseId: course._id },

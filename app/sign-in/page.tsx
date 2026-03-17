@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signInAction } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,12 +25,38 @@ export default function SignInPage() {
     setError(null);
     setLoading(true);
     const formData = new FormData(e.currentTarget);
-    const result = await signInAction(formData);
-    if (result?.error) {
-      setError(result.error);
+    const emailOrUsername = formData.get("emailOrUsername") as string;
+    const password = formData.get("password") as string;
+
+    if (!emailOrUsername?.trim() || !password) {
+      setError("Please enter your email/username and password");
       setLoading(false);
-    } else {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emailOrUsername: emailOrUsername.trim(),
+          password,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error ?? "Invalid email/username or password");
+        setLoading(false);
+        return;
+      }
+
       router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setError("Something went wrong. Please try again.");
+      setLoading(false);
     }
   }
 
@@ -52,12 +77,12 @@ export default function SignInPage() {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="emailOrUsername">Email or Username</Label>
               <Input
-                id="username"
-                name="username"
+                id="emailOrUsername"
+                name="emailOrUsername"
                 type="text"
-                placeholder="Enter username"
+                placeholder="Enter your email or username"
                 autoComplete="username"
                 required
                 disabled={loading}
@@ -70,17 +95,13 @@ export default function SignInPage() {
                 id="password"
                 name="password"
                 type="password"
-                placeholder="Enter password"
+                placeholder="Enter your password"
                 autoComplete="current-password"
                 required
                 disabled={loading}
                 className="h-11"
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Local dev: username <code className="rounded bg-muted px-1">Ldawg</code>, password{" "}
-              <code className="rounded bg-muted px-1">Password</code>
-            </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-4">
             <Button
@@ -91,6 +112,12 @@ export default function SignInPage() {
             >
               {loading ? "Signing in…" : "Sign In"}
             </Button>
+            <Link
+              href="/create-account"
+              className="text-sm text-muted-foreground hover:text-foreground"
+            >
+              Don&apos;t have an account? Create one
+            </Link>
             <Link
               href="/"
               className="text-sm text-muted-foreground hover:text-foreground"

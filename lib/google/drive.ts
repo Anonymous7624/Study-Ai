@@ -1,46 +1,80 @@
 /**
  * Google Drive API integration.
- * Stub for local dev. Implement when connecting Google.
+ * Fetches file metadata, downloads content, exports Docs and Slides.
  */
-
-import type { GoogleClassroomConfig } from "./classroom";
 
 export interface DriveFileMetadata {
   id: string;
   name: string;
   mimeType: string;
   webViewLink?: string;
+  size?: string;
 }
 
 export async function getFileMetadata(
   fileId: string,
-  _config?: GoogleClassroomConfig
+  accessToken: string
 ): Promise<DriveFileMetadata | null> {
-  // TODO: Real Drive API
-  return null;
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,mimeType,webViewLink,size`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!res.ok) return null;
+  const data = await res.json();
+  return {
+    id: data.id,
+    name: data.name ?? "",
+    mimeType: data.mimeType ?? "application/octet-stream",
+    webViewLink: data.webViewLink,
+    size: data.size,
+  };
 }
 
 export async function downloadFileContent(
   fileId: string,
-  mimeType: string,
-  _config?: GoogleClassroomConfig
-): Promise<Buffer | string | null> {
-  // TODO: Export Docs/Slides to plain text, download PDF
-  return null;
+  accessToken: string
+): Promise<Buffer | null> {
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!res.ok) return null;
+  const buf = await res.arrayBuffer();
+  return Buffer.from(buf);
 }
 
 export async function exportGoogleDoc(
   fileId: string,
-  _config?: GoogleClassroomConfig
+  accessToken: string
 ): Promise<string | null> {
-  // TODO: Use Drive export or Docs API
-  return null;
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!res.ok) return null;
+  return res.text();
 }
 
 export async function exportGoogleSlides(
   fileId: string,
-  _config?: GoogleClassroomConfig
+  accessToken: string
 ): Promise<string | null> {
-  // TODO: Export to plain text where possible
-  return null;
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!res.ok) return null;
+  return res.text();
 }

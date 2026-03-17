@@ -1,7 +1,9 @@
-export { User, type IUser } from "./User";
-export { Course, type ICourse } from "./Course";
-export { Assignment, type IAssignment } from "./Assignment";
-export { Post, type IPost } from "./Post";
-export { CourseContext, type ICourseContext } from "./CourseContext";
-export { AssignmentSession, type IAssignmentSession } from "./AssignmentSession";
-export { UserPreference, type IUserPreference } from "./UserPreference";
+export { default as User, type IUser } from "./User";
+export { default as Course, type ICourse } from "./Course";
+export { default as Assignment, type IAssignment } from "./Assignment";
+export { default as Post, type IPost } from "./Post";
+export { default as CourseContext, type ICourseContext } from "./CourseContext";
+export { default as AssignmentSession, type IAssignmentSession } from "./AssignmentSession";
+export { default as UserPreference, type IUserPreference } from "./UserPreference";
+export { default as UserFile, type IUserFile } from "./UserFile";
+export { default as GoogleConnection, type IGoogleConnection } from "./GoogleConnection";

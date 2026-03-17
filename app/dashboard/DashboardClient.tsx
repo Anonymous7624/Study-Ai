@@ -242,9 +242,24 @@ export default function DashboardClient({
           </CardHeader>
           <CardContent>
             {assignments.length === 0 ? (
-              <div className="py-12 text-center text-muted-foreground">
-                <Target className="mx-auto mb-4 h-12 w-12 opacity-50" />
-                <p>No active assignments. Sync from Google Classroom or add mock data.</p>
+              <div className="space-y-6 py-12 text-center">
+                <Target className="mx-auto h-12 w-12 text-muted-foreground/50" />
+                <p className="text-muted-foreground">No assignments yet. Get started by connecting your data.</p>
+                <div className="flex flex-wrap justify-center gap-4">
+                  <Link href="/settings#connections">
+                    <Button variant="default" className="gap-2">
+                      Connect Google Classroom / Drive
+                    </Button>
+                  </Link>
+                  <Link href="/settings#uploads">
+                    <Button variant="outline" className="gap-2">
+                      Upload files manually
+                    </Button>
+                  </Link>
+                  <Button variant="ghost" onClick={() => addToast("You can always connect or upload later from Settings")}>
+                    Skip for now
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-4">
