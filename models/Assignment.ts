@@ -2,6 +2,15 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 
 export type AssignmentStatus = "draft" | "published" | "deleted";
 export type DeadlineConfidence = "high" | "medium" | "low";
+export type ItemType =
+  | "assignment"
+  | "quiz"
+  | "test"
+  | "reading"
+  | "project"
+  | "study_task"
+  | "hidden_deadline"
+  | "date_conflict";
 
 export interface IMaterial {
   title?: string;
@@ -15,6 +24,7 @@ export interface IAssignment extends Document {
   userId: mongoose.Types.ObjectId;
   courseId: mongoose.Types.ObjectId;
   classroomAssignmentId?: string;
+  itemType?: ItemType;
   title: string;
   description?: string;
   officialDueDate?: Date;
@@ -63,6 +73,10 @@ const AssignmentSchema = new Schema<IAssignment>(
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     courseId: { type: Schema.Types.ObjectId, ref: "Course", required: true },
     classroomAssignmentId: String,
+    itemType: {
+      type: String,
+      enum: ["assignment", "quiz", "test", "reading", "project", "study_task", "hidden_deadline", "date_conflict"],
+    },
     title: { type: String, required: true },
     description: String,
     officialDueDate: Date,

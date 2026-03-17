@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,19 +18,24 @@ import {
   markAssignmentComplete,
   skipAssignment,
   getAssignmentsForDashboard,
+  getDashboardMeta,
+  getCalendarEvents,
 } from "@/app/actions/assignments";
 import {
-  Calendar,
+  Calendar as CalendarIcon,
   AlertTriangle,
   Target,
   Zap,
   ChevronRight,
+  ChevronLeft,
   ExternalLink,
   SkipForward,
   CheckCircle2,
   Loader2,
   LogOut,
   Settings,
+  RefreshCw,
+  CheckCircle,
 } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 
@@ -38,6 +43,7 @@ type Assignment = {
   _id: string;
   title: string;
   courseName: string;
+  itemType?: string;
   officialDueDate?: Date | string;
   inferredDueDate?: Date | string;
   dueDateConflict?: boolean;
@@ -54,24 +60,95 @@ type Stats = {
   conflicts: number;
 };
 
+type CalendarEvent = {
+  _id: string;
+  title: string;
+  courseName: string;
+  date: Date | string;
+  source: "official" | "inferred";
+};
+
+const ITEM_TYPE_LABELS: Record<string, string> = {
+  assignment: "Assignment",
+  quiz: "Quiz",
+  test: "Test",
+  reading: "Reading",
+  project: "Project",
+  study_task: "Study Task",
+  hidden_deadline: "Hidden Deadline",
+  date_conflict: "Date Conflict",
+};
+
 export default function DashboardClient({
   initialAssignments,
   initialStats,
+  initialCalendarEvents,
   displayName,
   error,
+  googleConnected: initialGoogleConnected,
+  lastCheckedAt: initialLastCheckedAt,
 }: {
   initialAssignments: Assignment[];
   initialStats: Stats;
+  initialCalendarEvents: CalendarEvent[];
   displayName: string;
   error: string | null;
+  googleConnected: boolean;
+  lastCheckedAt: Date | string | null;
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
   const [stats, setStats] = useState(initialStats);
+  const [calendarEvents, setCalendarEvents] = useState(initialCalendarEvents);
+  const [googleConnected, setGoogleConnected] = useState(initialGoogleConnected);
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | string | null>(initialLastCheckedAt);
   const [sortMode, setSortMode] = useState("ai-recommended");
   const [loading, setLoading] = useState(false);
+  const [checkInProgress, setCheckInProgress] = useState(false);
+  const [checkProgress, setCheckProgress] = useState("");
   const [actioningId, setActioningId] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
   const router = useRouter();
   const addToast = useToast();
+
+  const refreshData = useCallback(async () => {
+    const [assignRes, metaRes, calendarRes] = await Promise.all([
+      getAssignmentsForDashboard(sortMode),
+      getDashboardMeta(),
+      getCalendarEvents(calendarMonth.year, calendarMonth.month),
+    ]);
+    if (assignRes.assignments) setAssignments(assignRes.assignments);
+    if (assignRes.stats) setStats(assignRes.stats);
+    if (metaRes) {
+      setGoogleConnected(metaRes.googleConnected);
+      setLastCheckedAt(metaRes.lastCheckedAt);
+    }
+    if (Array.isArray(calendarRes)) setCalendarEvents(calendarRes);
+  }, [sortMode, calendarMonth]);
+
+  const handleRunCheck = async () => {
+    setCheckInProgress(true);
+    setCheckProgress("Starting...");
+    try {
+      setCheckProgress("Pulling data from Google...");
+      const res = await fetch("/api/check/run", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        addToast(data.error ?? "Run Check failed", "destructive");
+        setCheckInProgress(false);
+        return;
+      }
+      await refreshData();
+      addToast("Run Check complete. Your assignments and calendar are up to date.");
+      router.refresh();
+    } catch (e) {
+      addToast("Run Check failed", "destructive");
+    } finally {
+      setCheckInProgress(false);
+    }
+  };
 
   const handleSortChange = async (value: string) => {
     setSortMode(value);
@@ -205,6 +282,43 @@ export default function DashboardClient({
           </Card>
         </div>
 
+        {/* Run Check + Last checked (when Google connected) */}
+        {googleConnected && (
+          <Card className="mb-6">
+            <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-emerald-500" />
+                  <span className="font-medium">Google connected</span>
+                </div>
+                {lastCheckedAt && (
+                  <p className="text-sm text-muted-foreground">
+                    Last checked: {formatDate(lastCheckedAt)}
+                  </p>
+                )}
+              </div>
+              <Button
+                size="lg"
+                onClick={handleRunCheck}
+                disabled={checkInProgress}
+                className="gap-2"
+              >
+                {checkInProgress ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    {checkProgress || "Running check..."}
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    Run Check
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Quick Start + Sort */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           {topAssignment && (
@@ -244,21 +358,55 @@ export default function DashboardClient({
             {assignments.length === 0 ? (
               <div className="space-y-6 py-12 text-center">
                 <Target className="mx-auto h-12 w-12 text-muted-foreground/50" />
-                <p className="text-muted-foreground">No assignments yet. Get started by connecting your data.</p>
+                <p className="text-muted-foreground">
+                  {googleConnected
+                    ? "No assignments yet. Run a check to pull your classes and assignments from Google."
+                    : "No assignments yet. Get started by connecting your data."}
+                </p>
                 <div className="flex flex-wrap justify-center gap-4">
-                  <Link href="/settings#connections">
-                    <Button variant="default" className="gap-2">
-                      Connect Google Classroom / Drive
-                    </Button>
-                  </Link>
-                  <Link href="/settings#uploads">
-                    <Button variant="outline" className="gap-2">
-                      Upload files manually
-                    </Button>
-                  </Link>
-                  <Button variant="ghost" onClick={() => addToast("You can always connect or upload later from Settings")}>
-                    Skip for now
-                  </Button>
+                  {googleConnected ? (
+                    <>
+                      <Button
+                        variant="default"
+                        className="gap-2"
+                        onClick={handleRunCheck}
+                        disabled={checkInProgress}
+                      >
+                        {checkInProgress ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {checkProgress}
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="h-4 w-4" />
+                            Run Check
+                          </>
+                        )}
+                      </Button>
+                      <Link href="/settings#uploads">
+                        <Button variant="outline" className="gap-2">
+                          Upload files manually
+                        </Button>
+                      </Link>
+                    </>
+                  ) : (
+                    <>
+                      <Link href="/settings#connections">
+                        <Button variant="default" className="gap-2">
+                          Connect Google Classroom / Drive
+                        </Button>
+                      </Link>
+                      <Link href="/settings#uploads">
+                        <Button variant="outline" className="gap-2">
+                          Upload files manually
+                        </Button>
+                      </Link>
+                      <Button variant="ghost" onClick={() => addToast("You can always connect or upload later from Settings")}>
+                        Skip for now
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             ) : (
@@ -271,6 +419,11 @@ export default function DashboardClient({
                     <div className="flex-1 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="font-medium">{a.title}</h3>
+                        {a.itemType && ITEM_TYPE_LABELS[a.itemType] && (
+                          <Badge variant="outline" className="text-xs">
+                            {ITEM_TYPE_LABELS[a.itemType]}
+                          </Badge>
+                        )}
                         {a.dueDateConflict && (
                           <Badge variant="destructive" className="text-xs">
                             Date conflict
@@ -284,7 +437,7 @@ export default function DashboardClient({
                       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                         {a.officialDueDate && (
                           <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
+                            <CalendarIcon className="h-3 w-3" />
                             Due: {formatDate(a.officialDueDate)}
                           </span>
                         )}
@@ -345,15 +498,65 @@ export default function DashboardClient({
           </CardContent>
         </Card>
 
-        {/* Recent Class Updates - placeholder */}
+        {/* Calendar - monthly view */}
         <Card className="mt-8">
-          <CardHeader>
-            <CardTitle>Recent Class Updates</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <CalendarIcon className="h-5 w-5" />
+              Calendar
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  const prev = calendarMonth.month === 0 ? { year: calendarMonth.year - 1, month: 11 } : { year: calendarMonth.year, month: calendarMonth.month - 1 };
+                  setCalendarMonth(prev);
+                  const events = await getCalendarEvents(prev.year, prev.month);
+                  setCalendarEvents(events);
+                }}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="min-w-[140px] text-center text-sm font-medium">
+                {new Date(calendarMonth.year, calendarMonth.month).toLocaleString("default", { month: "long", year: "numeric" })}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  const next = calendarMonth.month === 11 ? { year: calendarMonth.year + 1, month: 0 } : { year: calendarMonth.year, month: calendarMonth.month + 1 };
+                  setCalendarMonth(next);
+                  const events = await getCalendarEvents(next.year, next.month);
+                  setCalendarEvents(events);
+                }}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
-              New announcements and materials will appear here after syncing with Google Classroom.
-            </p>
+            {calendarEvents.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                No assignments with due dates this month. Run Check to discover deadlines.
+              </p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {calendarEvents.map((ev) => (
+                  <Link
+                    key={ev._id}
+                    href={`/workspace/${ev._id}`}
+                    className="rounded-lg border p-3 transition-colors hover:bg-muted/50"
+                  >
+                    <p className="font-medium">{ev.title}</p>
+                    <p className="text-xs text-muted-foreground">{ev.courseName}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatDate(ev.date)} · {ev.source === "official" ? "Official" : "Inferred"}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </main>

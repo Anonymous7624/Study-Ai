@@ -61,6 +61,27 @@ export async function POST(request: Request) {
 
     await connectDB();
 
+    let extractedText: string | undefined;
+    if (file.type === "text/plain") {
+      extractedText = buffer.toString("utf-8");
+    } else if (file.type === "application/pdf") {
+      try {
+        const pdfParse = (await import("pdf-parse")).default;
+        const data = await pdfParse(buffer);
+        extractedText = data.text || undefined;
+      } catch {
+        extractedText = undefined;
+      }
+    } else if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      try {
+        const mammoth = await import("mammoth");
+        const result = await mammoth.extractRawText({ buffer });
+        extractedText = result.value || undefined;
+      } catch {
+        extractedText = undefined;
+      }
+    }
+
     const userFile = await UserFile.create({
       userId: session.id,
       originalName: file.name,
@@ -69,7 +90,7 @@ export async function POST(request: Request) {
       size: file.size,
       storagePath: path.relative(process.cwd(), storagePath),
       sourceType: "manual_upload",
-      extractedText: file.type === "text/plain" ? buffer.toString("utf-8") : undefined,
+      extractedText,
     });
 
     return NextResponse.json({
