@@ -4,22 +4,30 @@ import connectDB from "@/lib/mongodb";
 import Assignment from "@/models/Assignment";
 import Course from "@/models/Course";
 import User from "@/models/User";
+import UserFile from "@/models/UserFile";
 import GoogleConnection from "@/models/GoogleConnection";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 
 export async function getDashboardMeta() {
   const session = await getSession();
-  if (!session) return { googleConnected: false, lastCheckedAt: null as Date | null };
+  if (!session) return { googleConnected: false, hasUploads: false, showRunSync: false, lastCheckedAt: null as Date | null, lastSyncTriggeredAt: null as Date | null };
 
   await connectDB();
-  const [conn, user] = await Promise.all([
+  const [conn, user, fileCount] = await Promise.all([
     GoogleConnection.findOne({ userId: session.id }).lean(),
     User.findById(session.id).lean(),
+    UserFile.countDocuments({ userId: session.id }),
   ]);
+  const googleConnected = !!conn;
+  const hasUploads = fileCount > 0;
+  const showRunSync = googleConnected || hasUploads;
   return {
-    googleConnected: !!conn,
+    googleConnected,
+    hasUploads,
+    showRunSync,
     lastCheckedAt: user?.lastCheckedAt ?? null,
+    lastSyncTriggeredAt: user?.lastSyncTriggeredAt ?? null,
     lastSyncAt: conn?.lastSyncAt ?? null,
   };
 }

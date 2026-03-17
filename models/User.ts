@@ -11,6 +11,7 @@ export interface IUser extends Document {
   googleConnected: boolean;
   googleEmail?: string;
   lastCheckedAt?: Date;
+  lastSyncTriggeredAt?: Date;
   preferences?: Record<string, unknown>;
 }
 
@@ -26,6 +27,7 @@ const UserSchema = new Schema<IUser>(
     googleConnected: { type: Boolean, default: false },
     googleEmail: String,
     lastCheckedAt: Date,
+    lastSyncTriggeredAt: Date,
     preferences: Schema.Types.Mixed,
   },
   { timestamps: true }

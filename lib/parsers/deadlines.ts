@@ -142,5 +142,31 @@ export function extractDeadlines(text: string): ExtractedDeadline[] {
     add({ date: getTomorrow(), confidence: "medium", source: "tomorrow", rawText: "tomorrow" });
   }
 
+  // "due next week" -> next Friday or end of next week
+  const nextWeekMatch = text.match(/\b(?:due|by|before)\s+(?:next\s+)?(?:this\s+)?week\b/i);
+  if (nextWeekMatch) {
+    const from = new Date();
+    const daysUntilFriday = (5 - from.getDay() + 7) % 7 || 7;
+    const nextFriday = new Date(from);
+    nextFriday.setDate(from.getDate() + daysUntilFriday);
+    add({ date: nextFriday, confidence: "low", source: "next_week", rawText: nextWeekMatch[0] });
+  }
+
+  // "by end of day" -> today at EOD (we use date only)
+  if (/\b(?:due|by|before)\s+(?:the\s+)?end\s+of\s+(?:the\s+)?day\b/i.test(text)) {
+    const today = new Date();
+    add({ date: today, confidence: "medium", source: "end_of_day", rawText: "end of day" });
+  }
+
   return results;
+}
+
+/** Detect if text contains deadline evidence not in official assignment (hidden deadlines) */
+export function detectHiddenDeadlineEvidence(text: string): Array<{ rawText: string; date: Date; confidence: "high" | "medium" | "low" }> {
+  const deadlines = extractDeadlines(text);
+  return deadlines.map((d) => ({
+    rawText: d.rawText ?? d.source,
+    date: d.date,
+    confidence: d.confidence,
+  }));
 }

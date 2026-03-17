@@ -38,11 +38,42 @@ export async function extractTextFromFile(
   return "";
 }
 
-export function inferItemTypeFromTitle(title: string): "quiz" | "test" | "reading" | "project" | "assignment" | null {
+export type InferredItemType =
+  | "quiz"
+  | "test"
+  | "reading"
+  | "project"
+  | "study_task"
+  | "assignment";
+
+export function inferItemTypeFromTitle(title: string): InferredItemType | null {
   const lower = title.toLowerCase();
-  if (/\bquiz\b|\bquizzes\b/.test(lower)) return "quiz";
-  if (/\btest\b|\bexam\b|\bmidterm\b|\bfinal\b/.test(lower)) return "test";
-  if (/\breading\b|\bread\b|\bch\s*\d|chapter\s*\d/.test(lower)) return "reading";
-  if (/\bproject\b|\bpresentation\b/.test(lower)) return "project";
+  if (/\bquiz\b|\bquizzes\b|quiz\s+\d|chapter\s+\d+\s*quiz/i.test(lower)) return "quiz";
+  if (
+    /\btest\b|\bexam\b|\bmidterm\b|\bfinal\b|\bunit\s+test\b|\bassessment\b|pop\s+quiz/i.test(lower)
+  )
+    return "test";
+  if (/\bstudy\b|\bstudy\s+guide\b|\breview\b|\bprepare\s+for\b/i.test(lower)) return "study_task";
+  if (/\breading\b|\bread\b|\bch\s*\d|chapter\s*\d|\bpages?\s+\d/i.test(lower)) return "reading";
+  if (/\bproject\b|\bpresentation\b|\bessay\b|\bresearch\b/i.test(lower)) return "project";
   return "assignment";
+}
+
+/** Infer item type from combined title + description + attachment content */
+export function inferItemTypeFromContent(
+  title: string,
+  description?: string,
+  attachmentText?: string
+): InferredItemType {
+  const combined = [title, description ?? "", attachmentText ?? ""].join(" ").toLowerCase();
+  if (/\bquiz\b|\bquizzes\b|multiple\s+choice|short\s+answer\s+question/i.test(combined))
+    return "quiz";
+  if (
+    /\btest\b|\bexam\b|\bmidterm\b|\bfinal\b|\bunit\s+test\b|\bassessment\b|pop\s+quiz/i.test(combined)
+  )
+    return "test";
+  if (/\bstudy\b|\bstudy\s+guide\b|\breview\b|\bprepare\s+for\b/i.test(combined)) return "study_task";
+  if (/\breading\b|\bread\b|\bch\s*\d|chapter\s*\d/i.test(combined)) return "reading";
+  if (/\bproject\b|\bpresentation\b|\bessay\b|\bresearch\b/i.test(combined)) return "project";
+  return inferItemTypeFromTitle(title) ?? "assignment";
 }
