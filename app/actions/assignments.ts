@@ -32,6 +32,24 @@ export async function getDashboardMeta() {
   };
 }
 
+export async function getUploadedFiles() {
+  const session = await getSession();
+  if (!session) return [];
+
+  await connectDB();
+  const files = await UserFile.find({ userId: session.id })
+    .sort({ uploadedAt: -1 })
+    .lean();
+  return files.map((f) => ({
+    id: f._id.toString(),
+    originalName: f.originalName,
+    mimeType: f.mimeType,
+    size: f.size,
+    uploadedAt: f.uploadedAt,
+    sourceType: f.sourceType,
+  }));
+}
+
 export async function getCalendarEvents(year?: number, month?: number) {
   const session = await getSession();
   if (!session) return [];

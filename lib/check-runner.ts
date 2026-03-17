@@ -95,9 +95,11 @@ export async function runCheck(
     : await CheckJob.create({ userId: userObjectId, status: "running", startedAt: new Date() });
   if (!job) return { success: false, error: "Check job not found" };
 
-  const updateProgress = (msg: string) => {
+  const updateProgress = (msg: string, stage?: number) => {
     options.onProgress?.(msg);
-    void CheckJob.updateOne({ _id: job._id }, { $set: { progress: msg, updatedAt: new Date() } });
+    const update: Record<string, unknown> = { progress: msg, updatedAt: new Date() };
+    if (stage !== undefined) update.progressStage = stage;
+    void CheckJob.updateOne({ _id: job._id }, { $set: update });
   };
 
   const startTime = Date.now();
@@ -118,7 +120,7 @@ export async function runCheck(
   try {
     await CheckJob.updateOne(
       { _id: job._id },
-      { $set: { status: "running", progress: "Starting sync pipeline...", updatedAt: new Date() } }
+      { $set: { status: "running", progress: "Starting sync pipeline...", progressStage: 0, updatedAt: new Date() } }
     );
 
     const courseMap = new Map<string, mongoose.Types.ObjectId>();
@@ -134,7 +136,7 @@ export async function runCheck(
     courseMap.set(MANUAL_COURSE_ID, manualCourse._id);
 
     if (accessToken) {
-      updateProgress("Fetching Google Classroom...");
+      updateProgress("Reading assignments", 0);
       const classroomCourses = await listCourses(accessToken);
       for (const gc of classroomCourses) {
         const course = await Course.findOneAndUpdate(
@@ -144,7 +146,7 @@ export async function runCheck(
         );
         courseMap.set(gc.id, course._id);
 
-        updateProgress(`Syncing ${gc.name}...`);
+        updateProgress(`Syncing ${gc.name}...`, 0);
         const coursework = await listCoursework(accessToken, gc.id);
         for (const cw of coursework) {
           const dueDate = cw.dueDate ? new Date(cw.dueDate.year, cw.dueDate.month - 1, cw.dueDate.day) : undefined;
@@ -266,7 +268,7 @@ export async function runCheck(
     }
 
     // Manual uploads (Step 1 continued)
-    updateProgress("Processing uploaded files...");
+    updateProgress("Reading docs/slides/files", 2);
     const userFiles = await UserFile.find({ userId: userObjectId }).lean();
     for (const uf of userFiles) {
       let text = uf.extractedText;
@@ -305,7 +307,7 @@ export async function runCheck(
     }
 
     // --- STEP 2: CONTEXT BUILDING ---
-    updateProgress("Step 2: Building internal context...");
+    updateProgress("Building class context", 3);
     for (const [courseId, courseObjId] of courseMap) {
       if (courseId === MANUAL_COURSE_ID) continue;
       const assignments = await Assignment.find({ userId: userObjectId, courseId: courseObjId }).lean();
@@ -327,7 +329,7 @@ export async function runCheck(
     summary.memoryUpdated = true;
 
     // --- STEP 3: ASSIGNMENT INTELLIGENCE ---
-    updateProgress("Step 3: Generating study notes...");
+    updateProgress("Generating study notes", 5);
     const allAssignments = await Assignment.find({
       userId: userObjectId,
       localCompleted: { $ne: true },
@@ -396,6 +398,7 @@ export async function runCheck(
       );
     }
 
+    updateProgress("Updating calendar", 6);
     const ranked = rankAssignments(
       allAssignments.map((a) => ({
         ...a,
@@ -416,7 +419,7 @@ export async function runCheck(
     }
 
     // --- STEP 4: VALIDATION AND FINALIZATION ---
-    updateProgress("Step 4: Finalizing sync...");
+    updateProgress("Finalizing", 7);
 
     const elapsed = Date.now() - startTime;
     const minWait = Math.max(0, SYNC_MIN_DURATION_MS - elapsed);
@@ -432,6 +435,7 @@ export async function runCheck(
           status: "completed",
           completedAt: new Date(),
           progress: "Done",
+          progressStage: 7,
           coursesProcessed: summary.classesProcessedCount,
           assignmentsProcessed: summary.assignmentsFoundCount,
           filesProcessed: summary.documentsReadCount,

@@ -23,9 +23,11 @@ export interface ICheckJob extends Document {
   completedAt?: Date;
   error?: string;
   progress?: string;
+  progressStage?: number; // 0-7 for progress bar
   coursesProcessed?: number;
   assignmentsProcessed?: number;
   filesProcessed?: number;
+  progressStage?: number; // 0-7 for progress bar
   // Extended sync summary
   documentsReadCount?: number;
   assignmentsFoundCount?: number;
@@ -57,6 +59,7 @@ const CheckJobSchema = new Schema<ICheckJob>(
     coursesProcessed: Number,
     assignmentsProcessed: Number,
     filesProcessed: Number,
+    progressStage: Number,
     documentsReadCount: Number,
     assignmentsFoundCount: Number,
     pastDueCount: Number,
