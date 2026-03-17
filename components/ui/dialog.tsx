@@ -54,18 +54,16 @@ DialogTrigger.displayName = "DialogTrigger";
 
 const DialogContent = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & { onClose?: () => void }
->(({ className, children, onClose, ...props }, ref) => {
+  React.HTMLAttributes<HTMLDivElement> & { onClose?: () => void; closeable?: boolean }
+>(({ className, children, onClose, closeable = true, ...props }, ref) => {
   const ctx = React.useContext(DialogContext);
   if (!ctx?.open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div
         className="fixed inset-0 bg-black/50"
-        onClick={() => {
-          ctx.onOpenChange(false);
-          onClose?.();
-        }}
+        onClick={closeable ? () => { ctx.onOpenChange(false); onClose?.(); } : undefined}
+        style={!closeable ? { pointerEvents: "none" } : undefined}
       />
       <div
         ref={ref}

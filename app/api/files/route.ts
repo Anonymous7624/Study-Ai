@@ -21,9 +21,9 @@ export async function GET() {
         originalName: f.originalName,
         mimeType: f.mimeType,
         size: f.size,
-        uploadedAt: f.uploadedAt,
+        uploadedAt: f.uploadedAt ? new Date(f.uploadedAt).toISOString() : "",
         sourceType: f.sourceType,
-        processed: !!f.extractedText,
+        processed: !!(f as { extractedText?: string }).extractedText,
       })),
     });
   } catch (err) {

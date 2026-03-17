@@ -169,6 +169,41 @@ export async function getAssignmentsForDashboard(sortMode?: string) {
   return { assignments: sorted, courses, stats, error: null };
 }
 
+export async function getCompletedAssignments() {
+  const session = await getSession();
+  if (!session)
+    return { assignments: [], courses: {} as Record<string, { name: string }>, error: "Unauthorized" };
+
+  await connectDB();
+  const assignments = await Assignment.find({
+    userId: session.id,
+    $or: [{ localCompleted: true }, { turnedIn: true }],
+  })
+    .sort({ updatedAt: -1 })
+    .limit(100)
+    .lean();
+
+  const courseIds = [...new Set(assignments.map((a) => a.courseId?.toString()).filter(Boolean))];
+  const courses = await Course.find({ _id: { $in: courseIds } })
+    .lean()
+    .then((docs) => {
+      const map: Record<string, { name: string }> = {};
+      for (const c of docs) {
+        map[c._id.toString()] = { name: c.name };
+      }
+      return map;
+    });
+
+  const withCourse = assignments.map((a) => ({
+    ...a,
+    _id: a._id.toString(),
+    courseName: a.courseId ? courses[a.courseId.toString()]?.name ?? "Unknown" : "Unknown",
+    completedAt: (a as { updatedAt?: Date; createdAt?: Date }).updatedAt ?? (a as { updatedAt?: Date; createdAt?: Date }).createdAt,
+  }));
+
+  return { assignments: withCourse, courses, error: null };
+}
+
 export async function markAssignmentComplete(assignmentId: string) {
   const session = await getSession();
   if (!session) return { success: false, error: "Unauthorized" };
