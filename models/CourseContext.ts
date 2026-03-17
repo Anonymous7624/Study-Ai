@@ -3,12 +3,20 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 export interface ICourseContext extends Document {
   userId: mongoose.Types.ObjectId;
   courseId: mongoose.Types.ObjectId;
+  // User-facing (shown on assignment pages)
   activeUnit?: string;
   recentTopics?: string[];
   importantTerms?: string[];
   importantMaterials?: string[];
   likelyTeacherRules?: string[];
   aiClassSummary?: string;
+  // Internal AI-only context (NOT shown to user)
+  internalUnitSummary?: string;
+  teacherPatterns?: string[];
+  hiddenDeadlineEvidence?: string[];
+  internalReasoningNotes?: string;
+  userPreferenceMemory?: string;
+  gradeLevelHint?: string;
   updatedAt: Date;
 }
 
@@ -22,6 +30,12 @@ const CourseContextSchema = new Schema<ICourseContext>(
     importantMaterials: [String],
     likelyTeacherRules: [String],
     aiClassSummary: String,
+    internalUnitSummary: String,
+    teacherPatterns: [String],
+    hiddenDeadlineEvidence: [String],
+    internalReasoningNotes: String,
+    userPreferenceMemory: String,
+    gradeLevelHint: String,
     updatedAt: { type: Date, default: Date.now },
   },
   { timestamps: true }

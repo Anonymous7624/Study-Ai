@@ -55,6 +55,15 @@ export default async function WorkspacePage({
     extractedRequirements: assignment.extractedRequirements,
     firstStep: assignment.firstStep,
     aiSummary: assignment.aiSummary,
+    aiDescription: assignment.aiDescription,
+    whatYouNeedToDo: assignment.whatYouNeedToDo,
+    helpfulTips: assignment.helpfulTips,
+    talkingPoints: assignment.talkingPoints,
+    aiNotes: assignment.aiNotes,
+    evidenceUsed: assignment.evidenceUsed,
+    dueDateStatus: assignment.dueDateStatus,
+    wrongDateConclusion: assignment.wrongDateConclusion,
+    itemType: assignment.itemType,
     relatedClassContext: Array.isArray(assignment.relatedClassContext)
       ? assignment.relatedClassContext.join(", ")
       : assignment.relatedClassContext ?? null,

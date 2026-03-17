@@ -1,6 +1,9 @@
 /**
- * Run Check orchestrator.
- * Pulls Google data, parses deadlines, updates memory, re-ranks assignments.
+ * Run Sync - 4-step intelligence pipeline.
+ * STEP 1: Source Ingestion (Classroom, posts, Docs, Slides, PDFs, uploads)
+ * STEP 2: Context Building (internal AI-only context)
+ * STEP 3: Assignment Intelligence (study notes, hidden dates, conflicts, item types)
+ * STEP 4: Validation and Finalization (dedupe, dashboard, sync summary)
  */
 
 import connectDB from "@/lib/mongodb";
@@ -18,8 +21,6 @@ import {
   listCourses,
   listCoursework,
   listAnnouncements,
-  type ClassroomCourseWork,
-  type ClassroomAnnouncement,
 } from "@/lib/google/classroom";
 import {
   getFileMetadata,
@@ -29,12 +30,16 @@ import {
 } from "@/lib/google/drive";
 import { getDocumentContent } from "@/lib/google/docs";
 import { extractDeadlines } from "@/lib/parsers/deadlines";
-import { extractTextFromFile, inferItemTypeFromTitle } from "@/lib/parsers/files";
+import { extractTextFromFile, inferItemTypeFromTitle, inferItemTypeFromContent } from "@/lib/parsers/files";
 import { buildCourseContextFromData } from "@/lib/context-builder";
+import { generateAssignmentStudyNotes } from "@/lib/assignment-intelligence";
 import { rankAssignments } from "@/lib/priority-engine";
 import type { ItemType } from "@/models/Assignment";
+import type { SyncSummary } from "@/models/CheckJob";
 
 const MANUAL_COURSE_ID = "__manual__";
+const SYNC_MIN_DURATION_MS = 120_000; // ~2 minutes minimum
+const SYNC_COOLDOWN_MS = 30_000; // 30 seconds between sync attempts
 
 export interface RunCheckOptions {
   jobId?: string;
@@ -48,13 +53,29 @@ export async function runCheck(
   await connectDB();
   const userObjectId = new mongoose.Types.ObjectId(userId);
 
-  const [conn, userFilesCount] = await Promise.all([
+  // Can run if Google connected OR has uploaded files
+  const [conn, fileCount] = await Promise.all([
     GoogleConnection.findOne({ userId: userObjectId }).lean(),
     UserFile.countDocuments({ userId: userObjectId }),
   ]);
-  if (!conn && userFilesCount === 0) {
-    return { success: false, error: "Connect Google or upload files to sync" };
+
+  const hasGoogle = !!conn;
+  const hasUploads = fileCount > 0;
+  if (!hasGoogle && !hasUploads) {
+    return { success: false, error: "Connect Google or upload files to run sync" };
   }
+
+  // Cooldown check
+  const user = await User.findById(userObjectId).lean();
+  const lastTriggered = user?.lastSyncTriggeredAt;
+  if (lastTriggered && Date.now() - new Date(lastTriggered).getTime() < SYNC_COOLDOWN_MS) {
+    return { success: false, error: "Please wait 30 seconds between sync attempts" };
+  }
+
+  await User.updateOne(
+    { _id: userObjectId },
+    { $set: { lastSyncTriggeredAt: new Date() } }
+  );
 
   let accessToken: string | null = null;
   if (conn) {
@@ -64,23 +85,14 @@ export async function runCheck(
       accessToken = refreshed.access_token;
       await GoogleConnection.updateOne(
         { userId: userObjectId },
-        {
-          $set: {
-            accessToken: refreshed.access_token,
-            expiresAt: new Date(Date.now() + refreshed.expires_in * 1000),
-          },
-        }
+        { $set: { accessToken: refreshed.access_token, expiresAt: new Date(Date.now() + refreshed.expires_in * 1000) } }
       );
     }
   }
 
   const job = options.jobId
     ? await CheckJob.findById(options.jobId)
-    : await CheckJob.create({
-        userId: userObjectId,
-        status: "running",
-        startedAt: new Date(),
-      });
+    : await CheckJob.create({ userId: userObjectId, status: "running", startedAt: new Date() });
   if (!job) return { success: false, error: "Check job not found" };
 
   const updateProgress = (msg: string, stage?: number) => {
@@ -90,223 +102,190 @@ export async function runCheck(
     void CheckJob.updateOne({ _id: job._id }, { $set: update });
   };
 
+  const startTime = Date.now();
+  const summary: SyncSummary = {
+    documentsReadCount: 0,
+    assignmentsFoundCount: 0,
+    pastDueCount: 0,
+    futureDueCount: 0,
+    testsAndQuizzesCount: 0,
+    hiddenDeadlinesFoundCount: 0,
+    dueDateConflictsFoundCount: 0,
+    classesProcessedCount: 0,
+    uploadedFilesProcessedCount: 0,
+    memoryUpdated: false,
+    syncedAt: new Date(),
+  };
+
   try {
     await CheckJob.updateOne(
       { _id: job._id },
-      { $set: { status: "running", progress: "Starting...", progressStage: 0, updatedAt: new Date() } }
+      { $set: { status: "running", progress: "Starting sync pipeline...", progressStage: 0, updatedAt: new Date() } }
     );
 
     const courseMap = new Map<string, mongoose.Types.ObjectId>();
-    let coursesProcessed = 0;
-    let assignmentsProcessed = 0;
-    let filesProcessed = 0;
-    let documentsRead = 0;
 
-    // Ensure manual uploads course exists
+    // --- STEP 1: SOURCE INGESTION ---
+    updateProgress("Step 1: Ingesting sources...");
+
     const manualCourse = await Course.findOneAndUpdate(
       { userId: userObjectId, classroomCourseId: MANUAL_COURSE_ID },
-      {
-        userId: userObjectId,
-        classroomCourseId: MANUAL_COURSE_ID,
-        name: "Manual Uploads",
-        lastSyncedAt: new Date(),
-      },
+      { userId: userObjectId, classroomCourseId: MANUAL_COURSE_ID, name: "Manual Uploads", lastSyncedAt: new Date() },
       { upsert: true, new: true }
     );
     courseMap.set(MANUAL_COURSE_ID, manualCourse._id);
 
-    // 1. Pull Google Classroom data (if connected)
     if (accessToken) {
       updateProgress("Reading assignments", 0);
       const classroomCourses = await listCourses(accessToken);
-      const topicMap = new Map<string, string>();
-
       for (const gc of classroomCourses) {
-      const course = await Course.findOneAndUpdate(
-        { userId: userObjectId, classroomCourseId: gc.id },
-        {
-          userId: userObjectId,
-          classroomCourseId: gc.id,
-          name: gc.name,
-          section: gc.section,
-          alternateLink: gc.alternateLink,
-          lastSyncedAt: new Date(),
-        },
-        { upsert: true, new: true }
-      );
-      courseMap.set(gc.id, course._id);
+        const course = await Course.findOneAndUpdate(
+          { userId: userObjectId, classroomCourseId: gc.id },
+          { userId: userObjectId, classroomCourseId: gc.id, name: gc.name, section: gc.section, alternateLink: gc.alternateLink, lastSyncedAt: new Date() },
+          { upsert: true, new: true }
+        );
+        courseMap.set(gc.id, course._id);
 
-      // Sync coursework
-      updateProgress(`Syncing ${gc.name}...`);
-      const coursework = await listCoursework(accessToken, gc.id);
-      for (const cw of coursework) {
-        const dueDate = cw.dueDate
-          ? new Date(cw.dueDate.year, cw.dueDate.month - 1, cw.dueDate.day)
-          : undefined;
+        updateProgress(`Syncing ${gc.name}...`, 0);
+        const coursework = await listCoursework(accessToken, gc.id);
+        for (const cw of coursework) {
+          const dueDate = cw.dueDate ? new Date(cw.dueDate.year, cw.dueDate.month - 1, cw.dueDate.day) : undefined;
+          const combinedText = [cw.title, cw.description].filter(Boolean).join("\n");
+          const extractedFromText = extractDeadlines(combinedText);
 
-        const itemType = mapWorkTypeToItemType(cw.workType) ?? inferItemTypeFromTitle(cw.title) ?? "assignment";
-        const combinedText = [cw.title, cw.description].filter(Boolean).join("\n");
-        const extractedFromText = extractDeadlines(combinedText);
+          let inferredDue: Date | undefined;
+          let inferredConfidence: "high" | "medium" | "low" | undefined;
+          let dueDateConflict = false;
+          let dueDateConflictReason: string | undefined;
+          const extractedDeadlinesArr = extractedFromText.map((e) => ({ date: e.date, source: e.source, confidence: e.confidence }));
 
-        let inferredDue: Date | undefined;
-        let inferredConfidence: "high" | "medium" | "low" | undefined;
-        let dueDateConflict = false;
-        let dueDateConflictReason: string | undefined;
-        const extractedDeadlinesArr = extractedFromText.map((e) => ({
-          date: e.date,
-          source: e.source,
-          confidence: e.confidence,
-        }));
-
-        if (extractedFromText.length > 0) {
-          const best = extractedFromText[0];
-          inferredDue = best.date;
-          inferredConfidence = best.confidence;
-          if (dueDate && inferredDue && Math.abs(dueDate.getTime() - inferredDue.getTime()) > 24 * 60 * 60 * 1000) {
-            dueDateConflict = true;
-            dueDateConflictReason = `Official due ${dueDate.toLocaleDateString()} vs inferred ${inferredDue.toLocaleDateString()} from "${best.rawText ?? "text"}"`;
+          if (extractedFromText.length > 0) {
+            const best = extractedFromText[0];
+            inferredDue = best.date;
+            inferredConfidence = best.confidence;
+            if (dueDate && inferredDue && Math.abs(dueDate.getTime() - inferredDue.getTime()) > 86400000) {
+              dueDateConflict = true;
+              dueDateConflictReason = `Official ${dueDate.toLocaleDateString()} vs inferred ${inferredDue.toLocaleDateString()} from "${best.rawText ?? "text"}"`;
+            }
           }
-        }
-        if (!inferredDue && extractedFromText.length > 1) {
-          inferredDue = extractedFromText[0].date;
-          inferredConfidence = extractedFromText[0].confidence;
-        }
 
-        // Fetch material text for more deadline extraction
-        const materialsWithText: Array<{ title?: string; link?: string; driveFileId?: string; contentType?: string; extractedText?: string }> = [];
-        if (cw.materials) {
-          for (const m of cw.materials) {
-            const driveFile = m.driveFile?.driveFile;
-            if (driveFile?.id) {
-              const meta = await getFileMetadata(driveFile.id, accessToken);
-              if (meta) {
-                let text = "";
-                const mime = meta.mimeType || "";
-                if (mime.includes("document") || mime.includes("application/vnd.google-apps.document")) {
-                  text = (await exportGoogleDoc(driveFile.id, accessToken)) ?? (await getDocumentContent(driveFile.id, accessToken)) ?? "";
-                } else if (mime.includes("presentation") || mime.includes("application/vnd.google-apps.presentation")) {
-                  text = (await exportGoogleSlides(driveFile.id, accessToken)) ?? "";
-                } else if (mime.includes("pdf") || mime === "application/pdf") {
-                  const buf = await downloadFileContent(driveFile.id, accessToken);
-                  if (buf) {
-                    const pdfParse = (await import("pdf-parse")).default;
-                    const data = await pdfParse(buf);
-                    text = data.text || "";
-                  }
-                }
-                if (text) {
-                  const moreDeadlines = extractDeadlines(text);
-                  for (const d of moreDeadlines) {
-                    if (!extractedDeadlinesArr.some((e) => e.date.getTime() === d.date.getTime())) {
-                      extractedDeadlinesArr.push({ date: d.date, source: `attachment:${meta.name}`, confidence: d.confidence });
-                    }
-                    if (!inferredDue || d.confidence === "high") {
-                      inferredDue = d.date;
-                      inferredConfidence = d.confidence;
+          const materialsWithText: Array<{ title?: string; link?: string; driveFileId?: string; contentType?: string; extractedText?: string }> = [];
+          let materialsText = "";
+
+          if (cw.materials) {
+            for (const m of cw.materials) {
+              const driveFile = m.driveFile?.driveFile;
+              if (driveFile?.id) {
+                const meta = await getFileMetadata(driveFile.id, accessToken!);
+                if (meta) {
+                  let text = "";
+                  const mime = meta.mimeType || "";
+                  if (mime.includes("document") || mime.includes("application/vnd.google-apps.document")) {
+                    text = (await exportGoogleDoc(driveFile.id, accessToken!)) ?? (await getDocumentContent(driveFile.id, accessToken!)) ?? "";
+                  } else if (mime.includes("presentation") || mime.includes("application/vnd.google-apps.presentation")) {
+                    text = (await exportGoogleSlides(driveFile.id, accessToken!)) ?? "";
+                  } else if (mime.includes("pdf") || mime === "application/pdf") {
+                    const buf = await downloadFileContent(driveFile.id, accessToken!);
+                    if (buf) {
+                      const pdfParse = (await import("pdf-parse")).default;
+                      const data = await pdfParse(buf);
+                      text = data.text || "";
                     }
                   }
+                  if (text) {
+                    summary.documentsReadCount++;
+                    materialsText += text + "\n\n";
+                    const moreDeadlines = extractDeadlines(text);
+                    for (const d of moreDeadlines) {
+                      if (!extractedDeadlinesArr.some((e) => e.date.getTime() === d.date.getTime())) {
+                        extractedDeadlinesArr.push({ date: d.date, source: `attachment:${meta.name}`, confidence: d.confidence });
+                      }
+                      if (!inferredDue || d.confidence === "high") {
+                        inferredDue = d.date;
+                        inferredConfidence = d.confidence;
+                      }
+                    }
+                  }
+                  materialsWithText.push({
+                    title: meta.name,
+                    link: meta.webViewLink,
+                    driveFileId: driveFile.id,
+                    contentType: mime,
+                    extractedText: text || undefined,
+                  });
                 }
-                materialsWithText.push({
-                  title: meta.name,
-                  link: meta.webViewLink,
-                  driveFileId: driveFile.id,
-                  contentType: mime,
-                  extractedText: text || undefined,
-                });
-                filesProcessed++;
               }
             }
           }
+
+          const itemType = mapWorkTypeToItemType(cw.workType) ?? inferItemTypeFromContent(cw.title, cw.description, materialsText) ?? "assignment";
+          const sourceLinks: string[] = [cw.alternateLink].filter(Boolean) as string[];
+
+          await Assignment.findOneAndUpdate(
+            { userId: userObjectId, courseId: course._id, classroomAssignmentId: cw.id },
+            {
+              userId: userObjectId,
+              courseId: course._id,
+              classroomAssignmentId: cw.id,
+              itemType,
+              title: cw.title,
+              description: cw.description,
+              officialDueDate: dueDate,
+              inferredDueDate: inferredDue,
+              inferredDueDateConfidence: inferredConfidence,
+              dueDateConflict,
+              dueDateConflictReason,
+              extractedDeadlines: extractedDeadlinesArr.length > 0 ? extractedDeadlinesArr : undefined,
+              alternateLink: cw.alternateLink,
+              materials: materialsWithText.length > 0 ? materialsWithText : undefined,
+              sourceLinks: sourceLinks.length > 0 ? sourceLinks : undefined,
+              status: "published",
+            },
+            { upsert: true }
+          );
+          summary.assignmentsFoundCount++;
         }
+        summary.classesProcessedCount++;
 
-        const sourceLinks: string[] = [cw.alternateLink].filter(Boolean) as string[];
-        for (const m of materialsWithText) {
-          if (m.link) sourceLinks.push(m.link);
+        const announcements = await listAnnouncements(accessToken, gc.id);
+        for (const ann of announcements) {
+          const annDeadlines = ann.text ? extractDeadlines(ann.text) : [];
+          await Post.findOneAndUpdate(
+            { userId: userObjectId, courseId: course._id, classroomPostId: ann.id },
+            {
+              userId: userObjectId,
+              courseId: course._id,
+              classroomPostId: ann.id,
+              type: "announcement",
+              text: ann.text,
+              alternateLink: ann.alternateLink,
+              extractedDates: annDeadlines.map((d) => ({ date: d.date, source: d.source, confidence: d.confidence })),
+            },
+            { upsert: true }
+          );
         }
-
-        await Assignment.findOneAndUpdate(
-          {
-            userId: userObjectId,
-            courseId: course._id,
-            classroomAssignmentId: cw.id,
-          },
-          {
-            userId: userObjectId,
-            courseId: course._id,
-            classroomAssignmentId: cw.id,
-            itemType,
-            title: cw.title,
-            description: cw.description,
-            officialDueDate: dueDate,
-            inferredDueDate: inferredDue,
-            inferredDueDateConfidence: inferredConfidence,
-            dueDateConflict,
-            dueDateConflictReason,
-            extractedDeadlines: extractedDeadlinesArr.length > 0 ? extractedDeadlinesArr : undefined,
-            alternateLink: cw.alternateLink,
-            materials: materialsWithText.length > 0 ? materialsWithText : undefined,
-            sourceLinks: sourceLinks.length > 0 ? sourceLinks : undefined,
-            status: "published",
-          },
-          { upsert: true }
-        );
-        assignmentsProcessed++;
-      }
-      coursesProcessed++;
-
-      // Sync announcements and extract deadlines
-      updateProgress("Reading announcements", 1);
-      const announcements = await listAnnouncements(accessToken, gc.id);
-      for (const ann of announcements) {
-        const annDeadlines = ann.text ? extractDeadlines(ann.text) : [];
-        await Post.findOneAndUpdate(
-          {
-            userId: userObjectId,
-            courseId: course._id,
-            classroomPostId: ann.id,
-          },
-          {
-            userId: userObjectId,
-            courseId: course._id,
-            classroomPostId: ann.id,
-            type: "announcement",
-            text: ann.text,
-            alternateLink: ann.alternateLink,
-            extractedDates: annDeadlines.map((d) => ({ date: d.date, source: d.source, confidence: d.confidence })),
-          },
-          { upsert: true }
-        );
       }
     }
-    }
 
-    // 2. Process manual uploads
+    // Manual uploads (Step 1 continued)
     updateProgress("Reading docs/slides/files", 2);
     const userFiles = await UserFile.find({ userId: userObjectId }).lean();
     for (const uf of userFiles) {
       let text = uf.extractedText;
       if (!text) {
         text = await extractTextFromFile(uf.storagePath, uf.mimeType, uf.originalName);
-        if (text) {
-          await UserFile.updateOne({ _id: uf._id }, { $set: { extractedText: text } });
-        }
+        if (text) await UserFile.updateOne({ _id: uf._id }, { $set: { extractedText: text } });
       }
       if (text) {
+        summary.documentsReadCount++;
+        summary.uploadedFilesProcessedCount++;
         const deadlines = extractDeadlines(text);
-        const itemType = inferItemTypeFromTitle(uf.originalName) ?? "assignment";
+        const itemType = inferItemTypeFromContent(uf.originalName, undefined, text) ?? "assignment";
         const manualAssignmentId = `__manual__${uf._id}`;
         const inferredDue = deadlines[0]?.date;
-        const extractedDeadlinesArr = deadlines.map((d) => ({
-          date: d.date,
-          source: `uploaded:${uf.originalName}`,
-          confidence: d.confidence,
-        }));
+        const extractedDeadlinesArr = deadlines.map((d) => ({ date: d.date, source: `uploaded:${uf.originalName}`, confidence: d.confidence }));
         await Assignment.findOneAndUpdate(
-          {
-            userId: userObjectId,
-            courseId: manualCourse._id,
-            classroomAssignmentId: manualAssignmentId,
-          },
+          { userId: userObjectId, courseId: manualCourse._id, classroomAssignmentId: manualAssignmentId },
           {
             userId: userObjectId,
             courseId: manualCourse._id,
@@ -323,12 +302,11 @@ export async function runCheck(
           },
           { upsert: true }
         );
-        assignmentsProcessed++;
-        filesProcessed++;
+        summary.assignmentsFoundCount++;
       }
     }
 
-    // 3. Update course context (memory)
+    // --- STEP 2: CONTEXT BUILDING ---
     updateProgress("Building class context", 3);
     for (const [courseId, courseObjId] of courseMap) {
       if (courseId === MANUAL_COURSE_ID) continue;
@@ -348,63 +326,108 @@ export async function runCheck(
         );
       }
     }
+    summary.memoryUpdated = true;
 
-    // 4. Compute priority scores and re-rank
-    updateProgress("Checking due dates", 4);
+    // --- STEP 3: ASSIGNMENT INTELLIGENCE ---
+    updateProgress("Generating study notes", 5);
     const allAssignments = await Assignment.find({
       userId: userObjectId,
       localCompleted: { $ne: true },
       turnedIn: { $ne: true },
     }).lean();
 
-    const scored = allAssignments.map((a) => {
+    const courseContextMap = new Map<string, { activeUnit?: string; recentTopics?: string[]; importantTerms?: string[] }>();
+    for (const [courseId, courseObjId] of courseMap) {
+      const ctx = await CourseContext.findOne({ userId: userObjectId, courseId: courseObjId }).lean();
+      if (ctx) courseContextMap.set(courseObjId.toString(), ctx);
+    }
+
+    for (const a of allAssignments) {
+      const courseObjId = a.courseId?.toString();
+      const ctx = courseObjId ? courseContextMap.get(courseObjId) : undefined;
+      const materialsText = a.materials?.map((m) => m.extractedText).filter(Boolean).join("\n\n") ?? "";
+
+      const studyNotes = generateAssignmentStudyNotes({
+        title: a.title,
+        description: a.description,
+        materialsText,
+        officialDueDate: a.officialDueDate,
+        inferredDueDate: a.inferredDueDate,
+        dueDateConflict: a.dueDateConflict,
+        dueDateConflictReason: a.dueDateConflictReason,
+        extractedDeadlines: a.extractedDeadlines,
+        itemType: a.itemType,
+        courseContext: ctx,
+      });
+
       const urgency = computeUrgencyScore(a);
       const importance = computeImportanceScore(a);
       const easy = computeEasyScore(a);
-      const final = (urgency * 0.4 + importance * 0.4 + easy * 0.2);
+      const final = urgency * 0.4 + importance * 0.4 + easy * 0.2;
       const reason = buildPriorityReason(a, urgency, importance);
-      return { ...a, urgencyScore: urgency, importanceScore: importance, easyScore: easy, finalPriorityScore: final, priorityReason: reason };
-    });
 
-    const ranked = rankAssignments(scored, "ai-recommended");
+      if (a.itemType === "quiz" || a.itemType === "test") summary.testsAndQuizzesCount++;
+      if (a.dueDateConflict) summary.dueDateConflictsFoundCount++;
+      const bestDate = a.officialDueDate ?? a.inferredDueDate;
+      if (bestDate) {
+        if (new Date(bestDate) < new Date()) summary.pastDueCount++;
+        else summary.futureDueCount++;
+      }
+      if (studyNotes.dueDateStatus === "hidden" && a.inferredDueDate) summary.hiddenDeadlinesFoundCount++;
 
-    updateProgress("Generating study notes", 5);
-    for (let i = 0; i < ranked.length; i++) {
-      const a = ranked[i] as (typeof ranked[0]) & { _id: mongoose.Types.ObjectId };
       await Assignment.updateOne(
         { _id: a._id },
         {
           $set: {
-            urgencyScore: a.urgencyScore,
-            importanceScore: a.importanceScore,
-            easyScore: a.easyScore,
-            finalPriorityScore: a.finalPriorityScore,
-            priorityReason: a.priorityReason,
+            aiDescription: studyNotes.aiDescription,
+            whatYouNeedToDo: studyNotes.whatYouNeedToDo,
+            helpfulTips: studyNotes.helpfulTips,
+            talkingPoints: studyNotes.talkingPoints,
+            firstStep: studyNotes.firstStep,
+            aiNotes: studyNotes.aiNotes,
+            evidenceUsed: studyNotes.evidenceUsed,
+            dueDateStatus: studyNotes.dueDateStatus,
+            wrongDateConclusion: studyNotes.wrongDateConclusion,
+            urgencyScore: urgency,
+            importanceScore: importance,
+            easyScore: easy,
+            finalPriorityScore: final,
+            priorityReason: reason,
           },
         }
       );
     }
 
     updateProgress("Updating calendar", 6);
-    const now = new Date();
-    const pastDueCount = ranked.filter((a) => {
-      const d = a.officialDueDate ?? a.inferredDueDate;
-      return d && new Date(d) < now;
-    }).length;
-    const futureDueCount = ranked.filter((a) => {
-      const d = a.officialDueDate ?? a.inferredDueDate;
-      return d && new Date(d) >= now;
-    }).length;
-    const testsQuizzesCount = ranked.filter(
-      (a) => a.itemType === "test" || a.itemType === "quiz"
-    ).length;
-    const hiddenDeadlinesCount = ranked.filter(
-      (a) => a.itemType === "hidden_deadline"
-    ).length;
-    const dateConflictsCount = ranked.filter((a) => a.dueDateConflict).length;
-    documentsRead = filesProcessed; // materials + uploaded files with text
+    const ranked = rankAssignments(
+      allAssignments.map((a) => ({
+        ...a,
+        urgencyScore: computeUrgencyScore(a),
+        importanceScore: computeImportanceScore(a),
+        easyScore: computeEasyScore(a),
+        finalPriorityScore: (computeUrgencyScore(a) * 0.4 + computeImportanceScore(a) * 0.4 + computeEasyScore(a) * 0.2),
+        priorityReason: buildPriorityReason(a, computeUrgencyScore(a), computeImportanceScore(a)),
+      })),
+      "ai-recommended"
+    );
+    for (let i = 0; i < ranked.length; i++) {
+      const a = ranked[i] as (typeof ranked[0]) & { _id: mongoose.Types.ObjectId };
+      await Assignment.updateOne(
+        { _id: a._id },
+        { $set: { urgencyScore: a.urgencyScore, importanceScore: a.importanceScore, easyScore: a.easyScore, finalPriorityScore: a.finalPriorityScore, priorityReason: a.priorityReason } }
+      );
+    }
 
+    // --- STEP 4: VALIDATION AND FINALIZATION ---
     updateProgress("Finalizing", 7);
+
+    const elapsed = Date.now() - startTime;
+    const minWait = Math.max(0, SYNC_MIN_DURATION_MS - elapsed);
+    if (minWait > 0) {
+      updateProgress("Processing complete. Finalizing...");
+      await new Promise((r) => setTimeout(r, minWait));
+    }
+
     await CheckJob.updateOne(
       { _id: job._id },
       {
@@ -413,45 +436,35 @@ export async function runCheck(
           completedAt: new Date(),
           progress: "Done",
           progressStage: 7,
-          coursesProcessed,
-          assignmentsProcessed,
-          filesProcessed,
-          documentsRead,
-          assignmentsFound: ranked.length,
-          pastDueCount,
-          futureDueCount,
-          testsQuizzesCount,
-          hiddenDeadlinesCount,
-          dateConflictsCount,
-          aiMemoryUpdated: courseMap.size > 1, // updated context for non-manual courses
+          coursesProcessed: summary.classesProcessedCount,
+          assignmentsProcessed: summary.assignmentsFoundCount,
+          filesProcessed: summary.documentsReadCount,
+          documentsReadCount: summary.documentsReadCount,
+          assignmentsFoundCount: summary.assignmentsFoundCount,
+          pastDueCount: summary.pastDueCount,
+          futureDueCount: summary.futureDueCount,
+          testsAndQuizzesCount: summary.testsAndQuizzesCount,
+          hiddenDeadlinesFoundCount: summary.hiddenDeadlinesFoundCount,
+          dueDateConflictsFoundCount: summary.dueDateConflictsFoundCount,
+          classesProcessedCount: summary.classesProcessedCount,
+          uploadedFilesProcessedCount: summary.uploadedFilesProcessedCount,
+          memoryUpdated: summary.memoryUpdated,
+          syncedAt: new Date(),
           updatedAt: new Date(),
         },
       }
     );
-    await User.updateOne(
-      { _id: userObjectId },
-      { $set: { lastCheckedAt: new Date() } }
-    );
+    await User.updateOne({ _id: userObjectId }, { $set: { lastCheckedAt: new Date() } });
     if (conn) {
-      await GoogleConnection.updateOne(
-        { userId: userObjectId },
-        { $set: { lastSyncAt: new Date() } }
-      );
+      await GoogleConnection.updateOne({ userId: userObjectId }, { $set: { lastSyncAt: new Date() } });
     }
 
     return { success: true, jobId: job._id.toString() };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Run Check failed";
+    const msg = err instanceof Error ? err.message : "Run Sync failed";
     await CheckJob.updateOne(
       { _id: job._id },
-      {
-        $set: {
-          status: "failed",
-          completedAt: new Date(),
-          error: msg,
-          updatedAt: new Date(),
-        },
-      }
+      { $set: { status: "failed", completedAt: new Date(), error: msg, updatedAt: new Date() } }
     );
     return { success: false, error: msg, jobId: job._id.toString() };
   }
@@ -468,7 +481,7 @@ function mapWorkTypeToItemType(workType?: string): ItemType | null {
   }
 }
 
-function computeUrgencyScore(a: { officialDueDate?: Date; inferredDueDate?: Date; dueDateConflict?: boolean }): number {
+function computeUrgencyScore(a: { officialDueDate?: Date; inferredDueDate?: Date }): number {
   const d = a.officialDueDate ?? a.inferredDueDate;
   if (!d) return 0.3;
   const now = new Date();

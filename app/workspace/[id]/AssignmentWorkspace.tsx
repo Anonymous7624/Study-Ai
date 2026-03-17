@@ -47,6 +47,15 @@ interface AssignmentWorkspaceProps {
     extractedRequirements?: string[];
     firstStep?: string | null;
     aiSummary?: string | null;
+    aiDescription?: string | null;
+    whatYouNeedToDo?: string[] | null;
+    helpfulTips?: string[] | null;
+    talkingPoints?: string[] | null;
+    aiNotes?: string | null;
+    evidenceUsed?: string[] | null;
+    dueDateStatus?: string | null;
+    wrongDateConclusion?: string | null;
+    itemType?: string | null;
     relatedClassContext?: string | string[] | null;
     estimatedDifficulty?: number | string | null;
     estimatedEffort?: number | string | null;
@@ -141,9 +150,8 @@ export default function AssignmentWorkspace({
     }
   };
 
-  const talkingPoints = courseContext?.importantTerms?.length
-    ? courseContext.importantTerms
-    : courseContext?.recentTopics;
+  const talkingPoints = assignment.talkingPoints ?? (courseContext?.importantTerms?.length ? courseContext.importantTerms : courseContext?.recentTopics);
+  const bestDueDate = assignment.officialDueDate ?? assignment.inferredDueDate;
 
   return (
     <div className="min-h-screen bg-muted/30 font-sans">
@@ -174,7 +182,12 @@ export default function AssignmentWorkspace({
           <div className="space-y-6 lg:col-span-2">
             {/* 1. Title / class / badges */}
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">{assignment.title}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight">{assignment.title}</h1>
+                {assignment.itemType && (
+                  <Badge variant="outline" className="text-xs">{assignment.itemType}</Badge>
+                )}
+              </div>
               <p className="mt-1 text-muted-foreground">
                 {course?.name}
                 {course?.section && ` · ${course.section}`}
@@ -189,113 +202,126 @@ export default function AssignmentWorkspace({
               </div>
             </div>
 
-            {/* 2. Teacher Description */}
+            {/* 1. Teacher Description */}
             <NoteSection title="Teacher Description" icon={FileText}>
               {assignment.description ? (
-                <div className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {assignment.description}
-                </div>
+                <div className="whitespace-pre-wrap text-sm text-muted-foreground">{assignment.description}</div>
               ) : (
                 <p className="text-sm text-muted-foreground">No description provided.</p>
               )}
             </NoteSection>
 
-            {/* 3. AI Assignment Breakdown */}
+            {/* 2. AI Assignment Breakdown */}
             <NoteSection title="AI Assignment Breakdown" icon={Lightbulb}>
-              {assignment.teacherIntentSummary ? (
-                <p className="text-sm">{assignment.teacherIntentSummary}</p>
-              ) : null}
+              {(assignment.aiDescription ?? assignment.teacherIntentSummary ?? assignment.aiSummary) && (
+                <p className="text-sm">{assignment.aiDescription ?? assignment.teacherIntentSummary ?? assignment.aiSummary}</p>
+              )}
             </NoteSection>
 
-            {/* 4. What You Need To Do */}
+            {/* 3. What You Need To Do */}
             <NoteSection title="What You Need To Do" icon={Check}>
-              {assignment.extractedRequirements && assignment.extractedRequirements.length > 0 ? (
+              {((assignment.whatYouNeedToDo?.length ?? assignment.extractedRequirements?.length) ?? 0) > 0 && (
                 <ul className="list-disc space-y-1 pl-4 text-sm">
-                  {assignment.extractedRequirements.map((r, i) => (
-                    <li key={i}>{r}</li>
+                  {(assignment.whatYouNeedToDo ?? assignment.extractedRequirements ?? []).map((r, i) => (
+                    <li key={i}>{typeof r === "string" ? r : String(r)}</li>
                   ))}
                 </ul>
-              ) : null}
+              )}
             </NoteSection>
 
-            {/* 5. Best Guess About Due Date */}
+            {/* 4. Best Guess About Due Date */}
             <NoteSection title="Best Guess About Due Date" icon={Calendar}>
               <div className="space-y-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Official: </span>
-                  {formatDate(assignment.officialDueDate) ?? "Not set"}
-                </div>
-                {assignment.inferredDueDate && (
-                  <div>
-                    <span className="text-muted-foreground">Inferred: </span>
-                    {formatDate(assignment.inferredDueDate)}
-                  </div>
-                )}
-                {assignment.dueDateConflict && (
-                  <div className="flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                {bestDueDate ? (
+                  <>
                     <div>
-                      <p className="font-medium text-amber-800 dark:text-amber-200">
-                        Due date conflict
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {assignment.dueDateConflictReason ??
-                          "Official and inferred dates differ"}
-                      </p>
+                      {assignment.officialDueDate && <span>Official: {formatDate(assignment.officialDueDate)}</span>}
+                      {assignment.inferredDueDate && (
+                        <span className={assignment.officialDueDate ? " ml-2" : ""}>
+                          {assignment.officialDueDate ? "· " : ""}Inferred: {formatDate(assignment.inferredDueDate)}
+                        </span>
+                      )}
                     </div>
-                  </div>
+                    {(assignment.dueDateStatus === "conflict" || assignment.dueDateConflict) && (
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                        <div>
+                          <p className="font-medium text-amber-800 dark:text-amber-200">Due date conflict</p>
+                          <p className="text-sm text-muted-foreground">
+                            {assignment.wrongDateConclusion ?? assignment.dueDateConflictReason ?? "Verify with your teacher."}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {assignment.dueDateStatus === "hidden" && (
+                      <p className="text-xs text-muted-foreground italic">
+                        This date was inferred from assignment text or attachments—confirm with your teacher.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No due date found. Check with your teacher.</p>
                 )}
               </div>
             </NoteSection>
 
-            {/* 6. Helpful Tips */}
+            {/* 5. Helpful Tips */}
             <NoteSection title="Helpful Tips">
-              {courseContext?.aiClassSummary || courseContext?.activeUnit ? (
+              {assignment.helpfulTips && assignment.helpfulTips.length > 0 ? (
+                <ul className="list-disc space-y-1 pl-4 text-sm">
+                  {assignment.helpfulTips.map((t, i) => (
+                    <li key={i}>{t}</li>
+                  ))}
+                </ul>
+              ) : (courseContext?.aiClassSummary || courseContext?.activeUnit) ? (
                 <div className="space-y-2 text-sm">
                   {courseContext.aiClassSummary && <p>{courseContext.aiClassSummary}</p>}
                   {courseContext.activeUnit && (
-                    <p>
-                      <strong>Active unit:</strong> {courseContext.activeUnit}
-                    </p>
+                    <p><strong>Active unit:</strong> {courseContext.activeUnit}</p>
                   )}
                 </div>
               ) : null}
             </NoteSection>
 
-            {/* 7. Talking Points / What To Mention */}
+            {/* 6. Talking Points / What To Mention */}
             <NoteSection title="Talking Points / What To Mention">
-              {talkingPoints && talkingPoints.length > 0 ? (
-                <p className="text-sm">
-                  {Array.isArray(talkingPoints)
-                    ? talkingPoints.join(", ")
-                    : talkingPoints}
-                </p>
+              {talkingPoints && (Array.isArray(talkingPoints) ? talkingPoints.length > 0 : talkingPoints) ? (
+                Array.isArray(talkingPoints) ? (
+                  <ul className="list-disc space-y-1 pl-4 text-sm">
+                    {talkingPoints.map((t, i) => (
+                      <li key={i}>{t}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm">{String(talkingPoints)}</p>
+                )
               ) : null}
             </NoteSection>
 
-            {/* 8. First Step */}
+            {/* 7. First Step */}
             <NoteSection title="First Step" highlight>
               {assignment.firstStep ? (
                 <p className="text-sm font-medium">{assignment.firstStep}</p>
               ) : null}
             </NoteSection>
 
-            {/* 9. AI Notes */}
+            {/* 8. AI Notes */}
             <NoteSection title="AI Notes">
-              {assignment.aiSummary ? (
-                <p className="text-sm text-muted-foreground">{assignment.aiSummary}</p>
-              ) : assignment.relatedClassContext ? (
+              {(assignment.aiNotes ?? assignment.aiSummary ?? assignment.relatedClassContext) ? (
                 <p className="text-sm text-muted-foreground">
-                  {assignment.relatedClassContext}
+                  {assignment.aiNotes ?? assignment.aiSummary ?? (Array.isArray(assignment.relatedClassContext) ? assignment.relatedClassContext.join(", ") : assignment.relatedClassContext)}
                 </p>
               ) : null}
             </NoteSection>
 
-            {/* 10. Evidence Used */}
+            {/* 9. Evidence Used */}
             <NoteSection title="Evidence Used" icon={FileText}>
-              {(assignment.materials?.length || assignment.sourceLinks?.length) ? (
+              {(assignment.evidenceUsed?.length || assignment.materials?.length || assignment.sourceLinks?.length) ? (
                 <div className="space-y-2 text-sm">
-                  {assignment.materials?.map((m, i) => (
+                  {assignment.evidenceUsed?.map((e, i) => (
+                    <p key={i}>{e}</p>
+                  ))}
+                  {!assignment.evidenceUsed?.length && assignment.materials?.map((m, i) => (
                     <div key={i}>
                       {m.link ? (
                         <a
@@ -311,7 +337,7 @@ export default function AssignmentWorkspace({
                       )}
                     </div>
                   ))}
-                  {assignment.sourceLinks
+                  {!assignment.evidenceUsed?.length && assignment.sourceLinks
                     ?.filter(
                       (link) =>
                         !assignment.materials?.some((m) => m.link === link)
@@ -341,6 +367,23 @@ export default function AssignmentWorkspace({
                 </Button>
               </a>
             )}
+
+            {courseContext && (courseContext.aiClassSummary || courseContext.activeUnit || courseContext.recentTopics?.length) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Class Context</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  {courseContext.aiClassSummary && <p>{courseContext.aiClassSummary}</p>}
+                  {courseContext.activeUnit && (
+                    <p><strong>Active unit:</strong> {courseContext.activeUnit}</p>
+                  )}
+                  {courseContext.recentTopics && courseContext.recentTopics.length > 0 && (
+                    <p><strong>Recent topics:</strong> {courseContext.recentTopics.join(", ")}</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <div className="lg:col-span-1">
@@ -351,7 +394,7 @@ export default function AssignmentWorkspace({
                   Ask for help
                 </CardTitle>
                 <p className="text-sm text-muted-foreground">
-                  Get assignment-specific guidance from ClassPilot.
+                  Get evidence-driven guidance from ClassPilot. Answers prioritize synced assignment data.
                 </p>
               </CardHeader>
               <CardContent>
@@ -359,11 +402,17 @@ export default function AssignmentWorkspace({
                   assignmentId={assignment._id}
                   assignmentTitle={assignment.title}
                   courseName={course?.name ?? "Unknown"}
+                  aiDescription={assignment.aiDescription}
                   teacherIntent={assignment.teacherIntentSummary}
-                  requirements={assignment.extractedRequirements}
+                  requirements={assignment.whatYouNeedToDo ?? assignment.extractedRequirements}
                   firstStep={assignment.firstStep}
                   classContext={courseContext?.aiClassSummary}
                   description={assignment.description}
+                  evidenceUsed={assignment.evidenceUsed}
+                  dueDateStatus={assignment.dueDateStatus}
+                  officialDueDate={assignment.officialDueDate}
+                  inferredDueDate={assignment.inferredDueDate}
+                  dueDateConflictReason={assignment.dueDateConflictReason}
                 />
               </CardContent>
             </Card>

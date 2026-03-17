@@ -11,13 +11,7 @@ import { revalidatePath } from "next/cache";
 
 export async function getDashboardMeta() {
   const session = await getSession();
-  if (!session)
-    return {
-      googleConnected: false,
-      hasUploadedFiles: false,
-      lastCheckedAt: null as Date | null,
-      lastSyncAt: null as Date | null,
-    };
+  if (!session) return { googleConnected: false, hasUploads: false, showRunSync: false, lastCheckedAt: null as Date | null, lastSyncTriggeredAt: null as Date | null };
 
   await connectDB();
   const [conn, user, fileCount] = await Promise.all([
@@ -25,10 +19,15 @@ export async function getDashboardMeta() {
     User.findById(session.id).lean(),
     UserFile.countDocuments({ userId: session.id }),
   ]);
+  const googleConnected = !!conn;
+  const hasUploads = fileCount > 0;
+  const showRunSync = googleConnected || hasUploads;
   return {
-    googleConnected: !!conn,
-    hasUploadedFiles: (fileCount ?? 0) > 0,
+    googleConnected,
+    hasUploads,
+    showRunSync,
     lastCheckedAt: user?.lastCheckedAt ?? null,
+    lastSyncTriggeredAt: user?.lastSyncTriggeredAt ?? null,
     lastSyncAt: conn?.lastSyncAt ?? null,
   };
 }

@@ -110,7 +110,7 @@ type SyncSummary = {
   testsQuizzesCount: number;
   hiddenDeadlinesCount: number;
   dateConflictsCount: number;
-  aiMemoryUpdated: boolean;
+  memoryUpdated: boolean;
   lastSyncedAt: Date | string;
 };
 
@@ -125,6 +125,8 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
   date_conflict: "Date Conflict",
 };
 
+const SYNC_COOLDOWN_MS = 30_000;
+
 export default function DashboardClient({
   initialAssignments,
   initialStats,
@@ -133,8 +135,10 @@ export default function DashboardClient({
   displayName,
   error,
   googleConnected: initialGoogleConnected,
-  hasUploadedFiles: initialHasUploadedFiles,
+  hasUploads: initialHasUploads = false,
+  showRunSync = false,
   lastCheckedAt: initialLastCheckedAt,
+  lastSyncTriggeredAt: initialLastSyncTriggeredAt,
 }: {
   initialAssignments: Assignment[];
   initialStats: Stats;
@@ -143,16 +147,19 @@ export default function DashboardClient({
   displayName: string;
   error: string | null;
   googleConnected: boolean;
-  hasUploadedFiles: boolean;
+  hasUploads?: boolean;
+  showRunSync?: boolean;
   lastCheckedAt: Date | string | null;
+  lastSyncTriggeredAt?: Date | string | null;
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
   const [stats, setStats] = useState(initialStats);
   const [calendarEvents, setCalendarEvents] = useState(initialCalendarEvents);
   const [uploadedFiles, setUploadedFiles] = useState(initialUploadedFiles);
   const [googleConnected, setGoogleConnected] = useState(initialGoogleConnected);
-  const [hasUploadedFiles, setHasUploadedFiles] = useState(initialHasUploadedFiles);
+  const [hasUploadedFiles, setHasUploadedFiles] = useState(initialHasUploads);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | string | null>(initialLastCheckedAt);
+  const [lastSyncTriggeredAt, setLastSyncTriggeredAt] = useState<Date | string | null>(initialLastSyncTriggeredAt ?? null);
   const [sortMode, setSortMode] = useState("ai-recommended");
   const [loading, setLoading] = useState(false);
   const [syncInProgress, setSyncInProgress] = useState(false);
@@ -171,7 +178,7 @@ export default function DashboardClient({
   const router = useRouter();
   const addToast = useToast();
 
-  const canRunSync = googleConnected || hasUploadedFiles;
+  const canRunSync = showRunSync || googleConnected || hasUploadedFiles;
   const showOnboarding = !googleConnected && !hasUploadedFiles;
 
   useEffect(() => {
@@ -180,16 +187,18 @@ export default function DashboardClient({
     setCalendarEvents(initialCalendarEvents);
     setUploadedFiles(initialUploadedFiles);
     setGoogleConnected(initialGoogleConnected);
-    setHasUploadedFiles(initialHasUploadedFiles);
+    setHasUploadedFiles(initialHasUploads);
     setLastCheckedAt(initialLastCheckedAt);
+    setLastSyncTriggeredAt(initialLastSyncTriggeredAt ?? null);
   }, [
     initialAssignments,
     initialStats,
     initialCalendarEvents,
     initialUploadedFiles,
     initialGoogleConnected,
-    initialHasUploadedFiles,
+    initialHasUploads,
     initialLastCheckedAt,
+    initialLastSyncTriggeredAt,
   ]);
 
   const refreshData = useCallback(async () => {
@@ -209,6 +218,7 @@ export default function DashboardClient({
     if (metaRes) {
       setGoogleConnected(metaRes.googleConnected);
       setLastCheckedAt(metaRes.lastCheckedAt);
+      setLastSyncTriggeredAt(metaRes.lastSyncTriggeredAt ?? null);
     }
   }, [sortMode, calendarMonth]);
 
@@ -258,15 +268,15 @@ export default function DashboardClient({
           }
           const metaRes = await getDashboardMeta();
           setSyncSummary({
-            documentsRead: status.documentsRead ?? 0,
-            assignmentsFound: status.assignmentsFound ?? 0,
+            documentsRead: status.documentsReadCount ?? 0,
+            assignmentsFound: status.assignmentsFoundCount ?? 0,
             pastDueCount: status.pastDueCount ?? 0,
             futureDueCount: status.futureDueCount ?? 0,
-            testsQuizzesCount: status.testsQuizzesCount ?? 0,
-            hiddenDeadlinesCount: status.hiddenDeadlinesCount ?? 0,
-            dateConflictsCount: status.dateConflictsCount ?? 0,
-            aiMemoryUpdated: status.aiMemoryUpdated ?? false,
-            lastSyncedAt: metaRes?.lastCheckedAt ?? new Date(),
+            testsQuizzesCount: status.testsAndQuizzesCount ?? 0,
+            hiddenDeadlinesCount: status.hiddenDeadlinesFoundCount ?? 0,
+            dateConflictsCount: status.dueDateConflictsFoundCount ?? 0,
+            memoryUpdated: status.memoryUpdated ?? false,
+            lastSyncedAt: status.syncedAt ?? metaRes?.lastCheckedAt ?? new Date(),
           });
           setSyncInProgress(false);
           setSyncModalOpen(false);
@@ -581,7 +591,7 @@ export default function DashboardClient({
                   <div className="rounded-lg border p-3">
                     <p className="text-muted-foreground">AI context updated</p>
                     <p className="text-xl font-semibold">
-                      {syncSummary.aiMemoryUpdated ? "Yes" : "No"}
+                      {syncSummary.memoryUpdated ? "Yes" : "No"}
                     </p>
                   </div>
                 </div>

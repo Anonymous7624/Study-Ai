@@ -2,6 +2,20 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 
 export type CheckJobStatus = "pending" | "running" | "completed" | "failed";
 
+export interface SyncSummary {
+  documentsReadCount: number;
+  assignmentsFoundCount: number;
+  pastDueCount: number;
+  futureDueCount: number;
+  testsAndQuizzesCount: number;
+  hiddenDeadlinesFoundCount: number;
+  dueDateConflictsFoundCount: number;
+  classesProcessedCount: number;
+  uploadedFilesProcessedCount: number;
+  memoryUpdated: boolean;
+  syncedAt: Date;
+}
+
 export interface ICheckJob extends Document {
   userId: mongoose.Types.ObjectId;
   status: CheckJobStatus;
@@ -13,15 +27,19 @@ export interface ICheckJob extends Document {
   coursesProcessed?: number;
   assignmentsProcessed?: number;
   filesProcessed?: number;
-  // Sync completion summary
-  documentsRead?: number;
-  assignmentsFound?: number;
+  progressStage?: number; // 0-7 for progress bar
+  // Extended sync summary
+  documentsReadCount?: number;
+  assignmentsFoundCount?: number;
   pastDueCount?: number;
   futureDueCount?: number;
-  testsQuizzesCount?: number;
-  hiddenDeadlinesCount?: number;
-  dateConflictsCount?: number;
-  aiMemoryUpdated?: boolean;
+  testsAndQuizzesCount?: number;
+  hiddenDeadlinesFoundCount?: number;
+  dueDateConflictsFoundCount?: number;
+  classesProcessedCount?: number;
+  uploadedFilesProcessedCount?: number;
+  memoryUpdated?: boolean;
+  syncedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,14 +60,17 @@ const CheckJobSchema = new Schema<ICheckJob>(
     assignmentsProcessed: Number,
     filesProcessed: Number,
     progressStage: Number,
-    documentsRead: Number,
-    assignmentsFound: Number,
+    documentsReadCount: Number,
+    assignmentsFoundCount: Number,
     pastDueCount: Number,
     futureDueCount: Number,
-    testsQuizzesCount: Number,
-    hiddenDeadlinesCount: Number,
-    dateConflictsCount: Number,
-    aiMemoryUpdated: Boolean,
+    testsAndQuizzesCount: Number,
+    hiddenDeadlinesFoundCount: Number,
+    dueDateConflictsFoundCount: Number,
+    classesProcessedCount: Number,
+    uploadedFilesProcessedCount: Number,
+    memoryUpdated: Boolean,
+    syncedAt: Date,
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
   },

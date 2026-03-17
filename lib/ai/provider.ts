@@ -72,42 +72,66 @@ export async function generateWithFallback(
   throw new Error("All AI models failed");
 }
 
+export interface ChatContext {
+  assignmentTitle: string;
+  courseName: string;
+  teacherIntent?: string;
+  requirements?: string[];
+  firstStep?: string;
+  classContext?: string;
+  description?: string;
+  /** Evidence-driven fields (from sync pipeline) */
+  aiDescription?: string;
+  whatYouNeedToDo?: string[];
+  helpfulTips?: string[];
+  talkingPoints?: string[];
+  aiNotes?: string;
+  evidenceUsed?: string[];
+  officialDueDate?: string;
+  inferredDueDate?: string;
+  dueDateStatus?: string;
+  wrongDateConclusion?: string;
+}
+
 export async function generateChatResponse(params: {
   message: string;
-  context: {
-    assignmentTitle: string;
-    courseName: string;
-    teacherIntent?: string;
-    requirements?: string[];
-    firstStep?: string;
-    classContext?: string;
-    description?: string;
-  };
+  context: ChatContext;
   modelName?: string;
   baseUrl?: string;
 }): Promise<string> {
   const { PROMPTS } = await import("./prompts");
-  const assignmentContext = [
-    `Assignment: ${params.context.assignmentTitle}`,
-    `Course: ${params.context.courseName}`,
-    params.context.teacherIntent && `Teacher intent: ${params.context.teacherIntent}`,
-    params.context.requirements?.length &&
-      `Requirements: ${params.context.requirements.join("; ")}`,
-    params.context.firstStep && `Suggested first step: ${params.context.firstStep}`,
-    params.context.description && `Full description: ${params.context.description}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const ctx = params.context;
 
-  const classContext = params.context.classContext ?? "No additional class context.";
+  // Build evidence context for evidence-driven answers
+  const evidenceParts: string[] = [
+    `Assignment: ${ctx.assignmentTitle}`,
+    `Course: ${ctx.courseName}`,
+    ctx.aiDescription && `AI breakdown: ${ctx.aiDescription}`,
+    ctx.whatYouNeedToDo?.length && `What to do: ${ctx.whatYouNeedToDo.join("; ")}`,
+    ctx.firstStep && `First step: ${ctx.firstStep}`,
+    ctx.teacherIntent && `Teacher intent: ${ctx.teacherIntent}`,
+    ctx.requirements?.length && `Requirements: ${ctx.requirements.join("; ")}`,
+    ctx.helpfulTips?.length && `Tips: ${ctx.helpfulTips.join("; ")}`,
+    ctx.officialDueDate && `Official due: ${ctx.officialDueDate}`,
+    ctx.inferredDueDate && `Inferred due: ${ctx.inferredDueDate}`,
+    ctx.dueDateStatus && `Due date status: ${ctx.dueDateStatus}`,
+    ctx.wrongDateConclusion && `Date note: ${ctx.wrongDateConclusion}`,
+    ctx.evidenceUsed?.length && `Evidence: ${ctx.evidenceUsed.join(" | ")}`,
+    ctx.classContext && `Class context: ${ctx.classContext}`,
+    ctx.description && `Description: ${ctx.description}`,
+  ].filter(Boolean) as string[];
 
-  const systemPrompt = `You are ClassPilot, an AI tutor helping a student with their homework. You have context about their current assignment and class. Answer their questions using this context. Be specific, encouraging, and practical. Help them get started, understand what the teacher wants, organize their work, and answer follow-up questions.`;
+  const evidenceContext = evidenceParts.join("\n");
+
+  const systemPrompt = `You are ClassPilot, an advanced AI academic copilot. Answer using the synced evidence provided. NEVER say "check with your teacher" when the evidence clearly answers the question. Prioritize: stored notes → due-date conclusions → class context → evidence snippets. Only fall back to "verify with your teacher" when evidence is genuinely missing or conflicting.`;
 
   const messages: AIMessage[] = [
     { role: "system", content: systemPrompt },
     {
       role: "user",
-      content: `${PROMPTS.tutoringContext(assignmentContext, classContext, params.message)}`,
+      content: evidenceContext.length > 50
+        ? PROMPTS.evidenceDrivenTutoring(evidenceContext, params.message)
+        : PROMPTS.tutoringContext(evidenceContext, ctx.classContext ?? "No additional class context.", params.message),
     },
   ];
 

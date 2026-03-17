@@ -32,8 +32,10 @@ export default async function DashboardPage() {
       initialCalendarEvents={calendarEvents ?? []}
       initialUploadedFiles={uploadedFiles ?? []}
       googleConnected={dashboardMeta.googleConnected}
-      hasUploadedFiles={dashboardMeta.hasUploadedFiles}
+      hasUploads={dashboardMeta.hasUploads}
+      showRunSync={dashboardMeta.showRunSync ?? (dashboardMeta.googleConnected || dashboardMeta.hasUploads)}
       lastCheckedAt={dashboardMeta.lastCheckedAt}
+      lastSyncTriggeredAt={dashboardMeta.lastSyncTriggeredAt}
       displayName={session.displayName ?? "Student"}
       error={error}
     />
