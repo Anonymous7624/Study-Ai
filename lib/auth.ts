@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { jwtVerify, SignJWT } from "jose";
 import bcrypt from "bcryptjs";
 import connectDB from "./mongodb";
 import User from "@/models/User";
@@ -8,24 +9,69 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 export interface SessionUser {
   id: string;
+  email: string;
   username: string;
   displayName: string;
 }
 
+const getSecret = () => {
+  const secret =
+    process.env.JWT_SECRET ??
+    (process.env.NODE_ENV === "development"
+      ? "classpilot-dev-secret-change-in-production"
+      : undefined);
+  if (!secret) {
+    throw new Error("JWT_SECRET environment variable is required");
+  }
+  return new TextEncoder().encode(secret);
+};
+
+export async function createSession(user: {
+  _id: string;
+  email: string;
+  username: string;
+  displayName?: string;
+}) {
+  const secret = getSecret();
+  const token = await new SignJWT({
+    id: user._id.toString(),
+    email: user.email,
+    username: user.username,
+    displayName: user.displayName || user.username,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(`${SESSION_MAX_AGE}s`)
+    .sign(secret);
+
+  const cookieStore = await cookies();
+  cookieStore.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: SESSION_MAX_AGE,
+    path: "/",
+  });
+}
+
 export async function signIn(
-  username: string,
+  emailOrUsername: string,
   password: string
 ): Promise<{ success: boolean; error?: string }> {
   await connectDB();
 
-  const user = await User.findOne({ username });
+  const isEmail = emailOrUsername.includes("@");
+  const user = isEmail
+    ? await User.findOne({ email: emailOrUsername.trim().toLowerCase() })
+    : await User.findOne({ username: emailOrUsername.trim() });
+
   if (!user) {
-    return { success: false, error: "Invalid username or password" };
+    return { success: false, error: "Invalid email/username or password" };
   }
 
   const valid = await bcrypt.compare(password, user.hashedPassword);
   if (!valid) {
-    return { success: false, error: "Invalid username or password" };
+    return { success: false, error: "Invalid email/username or password" };
   }
 
   await User.updateOne(
@@ -33,19 +79,11 @@ export async function signIn(
     { $set: { lastLoginAt: new Date() } }
   );
 
-  const sessionUser: SessionUser = {
-    id: user._id.toString(),
+  await createSession({
+    _id: user._id.toString(),
+    email: user.email,
     username: user.username,
-    displayName: user.displayName ?? user.username,
-  };
-
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, JSON.stringify(sessionUser), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: SESSION_MAX_AGE,
-    path: "/",
+    displayName: user.displayName,
   });
 
   return { success: true };
@@ -58,16 +96,26 @@ export async function signOut(): Promise<void> {
 
 export async function getSession(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get(SESSION_COOKIE);
-  if (!sessionCookie?.value) return null;
+  const token = cookieStore.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
 
   try {
-    const session = JSON.parse(sessionCookie.value) as SessionUser;
-    if (session?.id && session?.username) return session;
+    const secret = getSecret();
+    const { payload } = await jwtVerify(token, secret);
+    const id = payload.id as string;
+    const email = payload.email as string;
+    const username = payload.username as string;
+    if (!id || !email || !username) return null;
+
+    return {
+      id,
+      email,
+      username,
+      displayName: (payload.displayName as string) || username,
+    };
   } catch {
-    // Invalid cookie
+    return null;
   }
-  return null;
 }
 
 export async function requireAuth(): Promise<SessionUser> {

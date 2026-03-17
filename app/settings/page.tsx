@@ -11,7 +11,7 @@ export default async function SettingsPage() {
 
   await connectDB();
   const user = await User.findById(session.id)
-    .select("username displayName createdAt")
+    .select("email username displayName createdAt")
     .lean();
   const prefs = await UserPreference.findOne({ userId: session.id }).lean();
 
@@ -21,12 +21,13 @@ export default async function SettingsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           <p className="mt-1 text-muted-foreground">
-            Manage your profile and preferences
+            Manage your profile, preferences, and connections
           </p>
         </div>
 
         <SettingsClient
           user={{
+            email: user?.email ?? session.email,
             username: user?.username ?? session.username,
             displayName: user?.displayName ?? session.displayName,
             createdAt: user?.createdAt ? String(user.createdAt) : "",
