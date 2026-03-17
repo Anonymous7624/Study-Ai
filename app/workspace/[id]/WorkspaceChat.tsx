@@ -16,11 +16,22 @@ interface WorkspaceChatProps {
   firstStep?: string | null;
   classContext?: string | null;
   description?: string | null;
+  aiDescription?: string | null;
+  evidenceUsed?: string[] | null;
+  dueDateStatus?: string | null;
+  officialDueDate?: string | Date | null;
+  inferredDueDate?: string | Date | null;
+  dueDateConflictReason?: string | null;
 }
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+}
+
+function formatDateForContext(d: string | Date | null | undefined): string | undefined {
+  if (!d) return undefined;
+  return new Date(d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 }
 
 export default function WorkspaceChat({
@@ -32,6 +43,12 @@ export default function WorkspaceChat({
   firstStep,
   classContext,
   description,
+  aiDescription,
+  evidenceUsed,
+  dueDateStatus,
+  officialDueDate,
+  inferredDueDate,
+  dueDateConflictReason,
 }: WorkspaceChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -64,6 +81,12 @@ export default function WorkspaceChat({
           firstStep: firstStep ?? undefined,
           classContext: classContext ?? undefined,
           description: description ?? undefined,
+          aiDescription: aiDescription ?? undefined,
+          evidenceUsed: evidenceUsed ?? undefined,
+          dueDateStatus: dueDateStatus ?? undefined,
+          officialDueDate: formatDateForContext(officialDueDate),
+          inferredDueDate: formatDateForContext(inferredDueDate),
+          wrongDateConclusion: dueDateConflictReason ?? undefined,
         },
       });
 
@@ -91,8 +114,7 @@ export default function WorkspaceChat({
       <div className="max-h-[400px] space-y-4 overflow-y-auto pr-2">
         {messages.length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Ask me anything about this assignment. I’ll use the assignment details and class context
-            to help you get started, understand requirements, or plan your work.
+            Ask about due dates, what to do first, or anything else. Answers use synced evidence from your assignments—no generic fallbacks when evidence exists.
           </p>
         )}
         {messages.map((m, i) => (

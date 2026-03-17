@@ -53,6 +53,15 @@ export interface IAssignment extends Document {
   priorityReason?: string;
   relatedClassContext?: string[];
   sourceLinks?: string[];
+  // User-facing study notes (generated during sync)
+  aiDescription?: string;
+  whatYouNeedToDo?: string[];
+  helpfulTips?: string[];
+  talkingPoints?: string[];
+  aiNotes?: string;
+  evidenceUsed?: string[];
+  dueDateStatus?: "confirmed" | "inferred" | "conflict" | "unknown" | "hidden";
+  wrongDateConclusion?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -111,6 +120,14 @@ const AssignmentSchema = new Schema<IAssignment>(
     priorityReason: String,
     relatedClassContext: [String],
     sourceLinks: [String],
+    aiDescription: String,
+    whatYouNeedToDo: [String],
+    helpfulTips: [String],
+    talkingPoints: [String],
+    aiNotes: String,
+    evidenceUsed: [String],
+    dueDateStatus: { type: String, enum: ["confirmed", "inferred", "conflict", "unknown", "hidden"] },
+    wrongDateConclusion: String,
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
   },

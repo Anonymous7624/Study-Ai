@@ -34,5 +34,16 @@ export async function GET(request: NextRequest) {
     coursesProcessed: job.coursesProcessed,
     assignmentsProcessed: job.assignmentsProcessed,
     filesProcessed: job.filesProcessed,
+    documentsReadCount: job.documentsReadCount,
+    assignmentsFoundCount: job.assignmentsFoundCount,
+    pastDueCount: job.pastDueCount,
+    futureDueCount: job.futureDueCount,
+    testsAndQuizzesCount: job.testsAndQuizzesCount,
+    hiddenDeadlinesFoundCount: job.hiddenDeadlinesFoundCount,
+    dueDateConflictsFoundCount: job.dueDateConflictsFoundCount,
+    classesProcessedCount: job.classesProcessedCount,
+    uploadedFilesProcessedCount: job.uploadedFilesProcessedCount,
+    memoryUpdated: job.memoryUpdated,
+    syncedAt: job.syncedAt,
   });
 }

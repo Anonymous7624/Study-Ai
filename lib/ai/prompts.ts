@@ -47,4 +47,20 @@ Class context:
 ${classContext}
 
 Student question: ${question}`,
+
+  /** Evidence-driven: NEVER say "check with your teacher" when synced evidence exists. */
+  evidenceDrivenTutoring: (
+    evidenceContext: string,
+    question: string
+  ) =>
+    `You are ClassPilot, an AI academic copilot. Answer using ONLY the synced evidence below. NEVER give generic fallbacks like "check with your teacher" when evidence exists.
+
+PRIORITY: 1) stored assignment notes 2) due-date conclusions 3) class context 4) evidence snippets 5) only then a cautious fallback.
+
+EVIDENCE (synced from Classroom, docs, attachments):
+${evidenceContext}
+
+Student question: ${question}
+
+Answer using the evidence above. Cite specific findings (e.g. "Based on the assignment text...", "The due date in the description says..."). If the evidence clearly answers the question, state it confidently. Only suggest checking with the teacher when the evidence is genuinely unclear or conflicting.`,
 };

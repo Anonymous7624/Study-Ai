@@ -79,6 +79,8 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
   date_conflict: "Date Conflict",
 };
 
+const SYNC_COOLDOWN_MS = 30_000;
+
 export default function DashboardClient({
   initialAssignments,
   initialStats,
@@ -86,7 +88,9 @@ export default function DashboardClient({
   displayName,
   error,
   googleConnected: initialGoogleConnected,
+  showRunSync = false,
   lastCheckedAt: initialLastCheckedAt,
+  lastSyncTriggeredAt: initialLastSyncTriggeredAt,
 }: {
   initialAssignments: Assignment[];
   initialStats: Stats;
@@ -94,13 +98,16 @@ export default function DashboardClient({
   displayName: string;
   error: string | null;
   googleConnected: boolean;
+  showRunSync?: boolean;
   lastCheckedAt: Date | string | null;
+  lastSyncTriggeredAt?: Date | string | null;
 }) {
   const [assignments, setAssignments] = useState(initialAssignments);
   const [stats, setStats] = useState(initialStats);
   const [calendarEvents, setCalendarEvents] = useState(initialCalendarEvents);
   const [googleConnected, setGoogleConnected] = useState(initialGoogleConnected);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | string | null>(initialLastCheckedAt);
+  const [lastSyncTriggeredAt, setLastSyncTriggeredAt] = useState<Date | string | null>(initialLastSyncTriggeredAt ?? null);
   const [sortMode, setSortMode] = useState("ai-recommended");
   const [loading, setLoading] = useState(false);
   const [checkInProgress, setCheckInProgress] = useState(false);
@@ -124,28 +131,46 @@ export default function DashboardClient({
     if (metaRes) {
       setGoogleConnected(metaRes.googleConnected);
       setLastCheckedAt(metaRes.lastCheckedAt);
+      setLastSyncTriggeredAt(metaRes.lastSyncTriggeredAt ?? null);
     }
     if (Array.isArray(calendarRes)) setCalendarEvents(calendarRes);
   }, [sortMode, calendarMonth]);
 
   const handleRunCheck = async () => {
     setCheckInProgress(true);
-    setCheckProgress("Starting...");
+    setCheckProgress("Starting sync...");
     try {
-      setCheckProgress("Pulling data from Google...");
       const res = await fetch("/api/check/run", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        addToast(data.error ?? "Run Check failed", "destructive");
+        addToast(data.error ?? "Run Sync failed", "destructive");
         setCheckInProgress(false);
         return;
       }
-      await refreshData();
-      addToast("Run Check complete. Your assignments and calendar are up to date.");
-      router.refresh();
+      const jobId = data.jobId;
+      if (jobId) {
+        const pollStatus = async () => {
+          const statusRes = await fetch(`/api/check/status?jobId=${jobId}`);
+          const statusData = await statusRes.json();
+          if (statusData.progress) setCheckProgress(statusData.progress);
+          if (statusData.status === "running") {
+            setTimeout(pollStatus, 2000);
+          } else {
+            await refreshData();
+            addToast(statusData.status === "completed" ? "Sync complete. Your assignments and calendar are up to date." : statusData.error ?? "Sync finished.", statusData.status === "failed" ? "destructive" : "default");
+            router.refresh();
+            setCheckInProgress(false);
+          }
+        };
+        pollStatus();
+      } else {
+        await refreshData();
+        addToast("Sync complete.", "default");
+        router.refresh();
+        setCheckInProgress(false);
+      }
     } catch (e) {
-      addToast("Run Check failed", "destructive");
-    } finally {
+      addToast("Run Sync failed", "destructive");
       setCheckInProgress(false);
     }
   };
@@ -282,36 +307,48 @@ export default function DashboardClient({
           </Card>
         </div>
 
-        {/* Run Check + Last checked (when Google connected) */}
-        {googleConnected && (
+        {/* Run Sync - when Google connected OR has uploaded files */}
+        {showRunSync && (
           <Card className="mb-6">
             <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="h-5 w-5 text-emerald-500" />
-                  <span className="font-medium">Google connected</span>
+                  <span className="font-medium">
+                    {googleConnected ? "Google connected" : "Uploads ready"}
+                  </span>
                 </div>
                 {lastCheckedAt && (
                   <p className="text-sm text-muted-foreground">
-                    Last checked: {formatDate(lastCheckedAt)}
+                    Last synced: {formatDate(lastCheckedAt)}
                   </p>
                 )}
+                {(() => {
+                  const triggered = lastSyncTriggeredAt ? new Date(lastSyncTriggeredAt).getTime() : 0;
+                  const cooldownRemaining = Math.ceil((SYNC_COOLDOWN_MS - (Date.now() - triggered)) / 1000);
+                  return cooldownRemaining > 0 && !checkInProgress ? (
+                    <p className="text-xs text-amber-600">Cooldown: {cooldownRemaining}s</p>
+                  ) : null;
+                })()}
               </div>
               <Button
                 size="lg"
                 onClick={handleRunCheck}
-                disabled={checkInProgress}
+                disabled={
+                  checkInProgress ||
+                  (!!lastSyncTriggeredAt && Date.now() - new Date(lastSyncTriggeredAt).getTime() < SYNC_COOLDOWN_MS)
+                }
                 className="gap-2"
               >
                 {checkInProgress ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    {checkProgress || "Running check..."}
+                    {checkProgress || "Syncing..."}
                   </>
                 ) : (
                   <>
                     <RefreshCw className="h-4 w-4" />
-                    Run Check
+                    Run Sync
                   </>
                 )}
               </Button>
