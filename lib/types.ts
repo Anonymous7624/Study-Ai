@@ -36,6 +36,7 @@ export interface Assignment {
   estimatedEffort?: number;
   easyScore?: number;
   finalPriorityScore?: number;
+  priorityReason?: string;
 }
 
 export type AssignmentDoc = Assignment;

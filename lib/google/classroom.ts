@@ -12,10 +12,17 @@ export interface ClassroomCourse {
   teacherFolder?: { alternateLink?: string };
 }
 
+export type ClassroomWorkType =
+  | "ASSIGNMENT"
+  | "SHORT_ANSWER_QUESTION"
+  | "MULTIPLE_CHOICE_QUESTION"
+  | "courseWorkTypeUnspecified";
+
 export interface ClassroomCourseWork {
   id: string;
   title: string;
   description?: string;
+  workType?: ClassroomWorkType;
   dueDate?: { year: number; month: number; day: number };
   dueTime?: { hours: number; minutes: number };
   alternateLink?: string;
@@ -82,6 +89,7 @@ export async function listCoursework(
     id: cw.id,
     title: cw.title ?? "Untitled",
     description: cw.description,
+    workType: (cw as { workType?: string }).workType,
     dueDate: (cw as { dueDate?: { year: number; month: number; day: number } }).dueDate,
     dueTime: (cw as { dueTime?: { hours: number; minutes: number } }).dueTime,
     alternateLink: (cw as { alternateLink?: string }).alternateLink,

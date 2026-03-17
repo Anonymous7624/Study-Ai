@@ -3,8 +3,64 @@
 import connectDB from "@/lib/mongodb";
 import Assignment from "@/models/Assignment";
 import Course from "@/models/Course";
+import User from "@/models/User";
+import GoogleConnection from "@/models/GoogleConnection";
 import { getSession } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
+
+export async function getDashboardMeta() {
+  const session = await getSession();
+  if (!session) return { googleConnected: false, lastCheckedAt: null as Date | null };
+
+  await connectDB();
+  const [conn, user] = await Promise.all([
+    GoogleConnection.findOne({ userId: session.id }).lean(),
+    User.findById(session.id).lean(),
+  ]);
+  return {
+    googleConnected: !!conn,
+    lastCheckedAt: user?.lastCheckedAt ?? null,
+    lastSyncAt: conn?.lastSyncAt ?? null,
+  };
+}
+
+export async function getCalendarEvents(year?: number, month?: number) {
+  const session = await getSession();
+  if (!session) return [];
+
+  await connectDB();
+  const y = year ?? new Date().getFullYear();
+  const m = month ?? new Date().getMonth();
+  const start = new Date(y, m, 1);
+  const end = new Date(y, m + 1, 0, 23, 59, 59);
+
+  const assignments = await Assignment.find({
+    userId: session.id,
+    localCompleted: { $ne: true },
+    turnedIn: { $ne: true },
+    $or: [
+      { officialDueDate: { $gte: start, $lte: end } },
+      { inferredDueDate: { $gte: start, $lte: end } },
+    ],
+  })
+    .populate("courseId", "name")
+    .lean();
+
+  return assignments.flatMap((a) => {
+    const date = a.officialDueDate ?? a.inferredDueDate;
+    if (!date) return [];
+    return [
+      {
+        _id: a._id.toString(),
+        title: a.title,
+        courseName: (a.courseId as { name?: string })?.name ?? "Unknown",
+        date,
+        source: (a.officialDueDate ? "official" : "inferred") as "official" | "inferred",
+        itemType: a.itemType ?? "assignment",
+      },
+    ];
+  });
+}
 
 export async function getAssignmentsForDashboard(sortMode?: string) {
   const session = await getSession();

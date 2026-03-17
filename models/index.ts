@@ -7,3 +7,4 @@ export { default as AssignmentSession, type IAssignmentSession } from "./Assignm
 export { default as UserPreference, type IUserPreference } from "./UserPreference";
 export { default as UserFile, type IUserFile } from "./UserFile";
 export { default as GoogleConnection, type IGoogleConnection } from "./GoogleConnection";
+export { default as CheckJob, type ICheckJob } from "./CheckJob";
