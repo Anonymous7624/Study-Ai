@@ -5,14 +5,29 @@ import User from "@/models/User";
 import GoogleConnection from "@/models/GoogleConnection";
 import { exchangeCodeForTokens, getGoogleUserEmail } from "@/lib/google/auth";
 
+/**
+ * Builds the public origin for redirects. Uses x-forwarded-proto and x-forwarded-host
+ * when behind a proxy (Cloudflare, ngrok, etc.) so redirects go to the real domain
+ * instead of localhost. Domain-agnostic and production-safe.
+ */
+function getRedirectBase(request: NextRequest): string {
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+  const forwardedHost = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  if (forwardedProto && forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+  return new URL(request.url).origin;
+}
+
 export async function GET(request: NextRequest) {
+  const base = getRedirectBase(request);
   const { searchParams } = new URL(request.url);
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const errorParam = searchParams.get("error");
 
   if (errorParam) {
-    return NextResponse.redirect(new URL("/settings?google_error=denied", request.url));
+    return NextResponse.redirect(new URL("/settings?google_error=denied", base + "/"));
   }
 
   const cookieStore = await cookies();
@@ -23,11 +38,11 @@ export async function GET(request: NextRequest) {
   cookieStore.delete("google_oauth_user");
 
   if (!code || !state || state !== savedState) {
-    return NextResponse.redirect(new URL("/settings?google_error=invalid_state", request.url));
+    return NextResponse.redirect(new URL("/settings?google_error=invalid_state", base + "/"));
   }
 
   if (!userId) {
-    return NextResponse.redirect(new URL("/sign-in", request.url));
+    return NextResponse.redirect(new URL("/sign-in", base + "/"));
   }
 
   try {
@@ -35,7 +50,7 @@ export async function GET(request: NextRequest) {
     const googleEmail = await getGoogleUserEmail(tokens.access_token);
 
     if (!tokens.refresh_token) {
-      return NextResponse.redirect(new URL("/settings?google_error=no_refresh", request.url));
+      return NextResponse.redirect(new URL("/settings?google_error=no_refresh", base + "/"));
     }
 
     const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
@@ -66,11 +81,11 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    return NextResponse.redirect(new URL("/settings?google_connected=1", request.url));
+    return NextResponse.redirect(new URL("/settings?google_connected=1", base + "/"));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Google connection failed";
     return NextResponse.redirect(
-      new URL(`/settings?google_error=${encodeURIComponent(msg)}`, request.url)
+      new URL(`/settings?google_error=${encodeURIComponent(msg)}`, base + "/")
     );
   }
 }
