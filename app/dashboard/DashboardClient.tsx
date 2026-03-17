@@ -28,6 +28,7 @@ import {
   getAssignmentsForDashboard,
   getDashboardMeta,
   getCalendarEvents,
+  getCompletedAssignments,
 } from "@/app/actions/assignments";
 import {
   Calendar as CalendarIcon,
@@ -128,11 +129,14 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
 
 const SYNC_COOLDOWN_MS = 30_000;
 
+type CompletedAssignment = Assignment & { completedAt?: Date | string };
+
 export default function DashboardClient({
   initialAssignments,
   initialStats,
   initialCalendarEvents,
   initialUploadedFiles,
+  initialCompletedAssignments = [],
   displayName,
   error,
   googleConnected: initialGoogleConnected,
@@ -145,6 +149,7 @@ export default function DashboardClient({
   initialStats: Stats;
   initialCalendarEvents: CalendarEvent[];
   initialUploadedFiles: UploadedFile[];
+  initialCompletedAssignments?: CompletedAssignment[];
   displayName: string;
   error: string | null;
   googleConnected: boolean;
@@ -157,8 +162,9 @@ export default function DashboardClient({
   const [stats, setStats] = useState(initialStats);
   const [calendarEvents, setCalendarEvents] = useState(initialCalendarEvents);
   const [uploadedFiles, setUploadedFiles] = useState(initialUploadedFiles);
+  const [completedAssignments, setCompletedAssignments] = useState<CompletedAssignment[]>(initialCompletedAssignments);
   const [googleConnected, setGoogleConnected] = useState(initialGoogleConnected);
-  const [hasUploadedFiles, setHasUploadedFiles] = useState(initialHasUploads);
+  const [hasUploadedFiles, setHasUploadedFiles] = useState(initialHasUploads ?? initialUploadedFiles.length > 0);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | string | null>(initialLastCheckedAt);
   const [lastSyncTriggeredAt, setLastSyncTriggeredAt] = useState<Date | string | null>(initialLastSyncTriggeredAt ?? null);
   const [sortMode, setSortMode] = useState("ai-recommended");
@@ -187,8 +193,9 @@ export default function DashboardClient({
     setStats(initialStats);
     setCalendarEvents(initialCalendarEvents);
     setUploadedFiles(initialUploadedFiles);
+    setCompletedAssignments(initialCompletedAssignments ?? []);
     setGoogleConnected(initialGoogleConnected);
-    setHasUploadedFiles(initialHasUploads);
+    setHasUploadedFiles(initialHasUploads || initialUploadedFiles.length > 0);
     setLastCheckedAt(initialLastCheckedAt);
     setLastSyncTriggeredAt(initialLastSyncTriggeredAt ?? null);
   }, [
@@ -196,18 +203,42 @@ export default function DashboardClient({
     initialStats,
     initialCalendarEvents,
     initialUploadedFiles,
+    initialCompletedAssignments,
     initialGoogleConnected,
     initialHasUploads,
     initialLastCheckedAt,
     initialLastSyncTriggeredAt,
   ]);
 
+  // Client-side re-fetch of connection status on mount to fix stale server-rendered state
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [statusRes, filesRes] = await Promise.all([
+          fetch("/api/google/status"),
+          fetch("/api/files"),
+        ]);
+        if (cancelled) return;
+        const status = await statusRes.json();
+        const filesData = await filesRes.json();
+        if (status.connected !== undefined) setGoogleConnected(status.connected);
+        const files = filesData.files ?? [];
+        if (files.length > 0) setHasUploadedFiles(true);
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const refreshData = useCallback(async () => {
-    const [assignRes, metaRes, calendarRes, filesRes] = await Promise.all([
+    const [assignRes, metaRes, calendarRes, filesRes, completedRes] = await Promise.all([
       getAssignmentsForDashboard(sortMode),
       getDashboardMeta(),
       getCalendarEvents(calendarMonth.year, calendarMonth.month),
       fetch("/api/files").then((r) => r.json()).then((d) => d.files ?? []),
+      getCompletedAssignments(),
     ]);
     if (assignRes.assignments) setAssignments(assignRes.assignments);
     if (assignRes.stats) setStats(assignRes.stats);
@@ -216,6 +247,7 @@ export default function DashboardClient({
       setUploadedFiles(filesRes);
       setHasUploadedFiles(filesRes.length > 0);
     }
+    if (completedRes?.assignments) setCompletedAssignments(completedRes.assignments);
     if (metaRes) {
       setGoogleConnected(metaRes.googleConnected);
       setLastCheckedAt(metaRes.lastCheckedAt);
@@ -324,10 +356,17 @@ export default function DashboardClient({
   const handleMarkComplete = async (id: string) => {
     setActioningId(id);
     try {
+      const assignment = assignments.find((a) => a._id === id);
       const res = await markAssignmentComplete(id);
       if (res.success) {
         setAssignments((prev) => prev.filter((a) => a._id !== id));
         setStats((s) => ({ ...s, total: Math.max(0, s.total - 1) }));
+        if (assignment) {
+          setCompletedAssignments((prev) => [
+            { ...assignment, completedAt: new Date() },
+            ...prev,
+          ]);
+        }
         addToast("Marked as complete");
       } else {
         addToast(res.error ?? "Failed", "destructive");
@@ -425,6 +464,40 @@ export default function DashboardClient({
           </div>
         )}
 
+        {/* Large prominent Sync CTA - visible when user has Google or files */}
+        {canRunSync && !showOnboarding && (
+          <div className="mb-6 flex flex-col items-center gap-4 rounded-xl border-2 border-primary/30 bg-primary/5 py-8 px-6">
+            <p className="text-center text-sm font-medium text-muted-foreground">
+              {googleConnected ? "Google connected" : "Files uploaded"} · Sync to update assignments
+            </p>
+            {cooldownRemaining > 0 ? (
+              <Button size="lg" variant="outline" disabled className="min-w-[200px] gap-2 h-14 text-base">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Cooldown: {cooldownRemaining}s
+              </Button>
+            ) : (
+              <Button
+                size="lg"
+                onClick={handleRunSync}
+                disabled={syncInProgress}
+                className="min-w-[200px] h-14 text-base gap-3 shadow-lg"
+              >
+                {syncInProgress ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Syncing...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-5 w-5" />
+                    Sync
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        )}
+
         {/* Onboarding: No Google + No files */}
         {showOnboarding && (
           <Card className="mb-8 overflow-hidden border-0 shadow-lg">
@@ -456,10 +529,10 @@ export default function DashboardClient({
           </Card>
         )}
 
-        {/* Sync: Primary action when connected */}
+        {/* Sync: Large prominent button when connected or has files - NEVER hidden for connected users */}
         {canRunSync && !showOnboarding && (
-          <Card className="mb-8 overflow-hidden border-0 shadow-md">
-            <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <Card className="mb-8 overflow-hidden border-2 border-primary/20 bg-primary/5 shadow-lg">
+            <CardContent className="flex flex-col gap-6 p-8 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-col gap-1.5">
                 {googleConnected && (
                   <div className="flex items-center gap-2">
@@ -486,7 +559,7 @@ export default function DashboardClient({
                     size="lg"
                     onClick={handleRunSync}
                     disabled={syncInProgress}
-                    className="min-w-[180px] gap-2 shadow-sm"
+                    className="min-w-[200px] gap-2 px-8 py-6 text-base font-semibold shadow-lg"
                   >
                     {syncInProgress ? (
                       <>
@@ -506,9 +579,9 @@ export default function DashboardClient({
           </Card>
         )}
 
-        {/* Sync progress modal */}
+        {/* Sync progress modal - always visible when syncing, cannot be dismissed */}
         <Dialog open={syncModalOpen} onOpenChange={() => {}}>
-          <DialogContent onClose={() => {}} className="max-w-md">
+          <DialogContent onClose={() => {}} closeable={false} className="max-w-md z-[200]">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -812,6 +885,56 @@ export default function DashboardClient({
                     onSkip={handleSkip}
                     actioningId={actioningId}
                   />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Completed */}
+        {completedAssignments.length > 0 && (
+          <Card className="mb-6 overflow-hidden border-emerald-500/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                <CheckCircle2 className="h-5 w-5" />
+                Completed
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">Finished assignments</p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {completedAssignments.map((a) => (
+                  <div
+                    key={a._id}
+                    className="flex flex-col gap-2 rounded-lg border border-emerald-500/20 bg-emerald-50/50 p-4 dark:bg-emerald-950/20 dark:border-emerald-500/10"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link href={`/workspace/${a._id}`} className="font-medium hover:underline">
+                        {a.title}
+                      </Link>
+                      {a.itemType && ITEM_TYPE_LABELS[a.itemType] && (
+                        <Badge variant="outline" className="text-xs">
+                          {ITEM_TYPE_LABELS[a.itemType]}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">{a.courseName}</p>
+                    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {a.officialDueDate && (
+                        <span>Due: {formatDate(a.officialDueDate)}</span>
+                      )}
+                      {(a as CompletedAssignment).completedAt && (
+                        <span className="text-emerald-600 dark:text-emerald-400">
+                          Completed: {formatDate((a as CompletedAssignment).completedAt)}
+                        </span>
+                      )}
+                    </div>
+                    <Link href={`/workspace/${a._id}`}>
+                      <Button variant="ghost" size="sm" className="mt-1">
+                        View
+                      </Button>
+                    </Link>
+                  </div>
                 ))}
               </div>
             </CardContent>
